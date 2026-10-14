@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Live D&A progress and feedback from a video stream">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D&A Live Demo</title>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="icon" href="static/images/favicon.png">
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+
+  <style>
+    :root {
+      --accent: #D81B60;
+      --accent-soft: rgba(216, 27, 96, 0.12);
+    }
+
+    body { background: #fff; }
+    .widget-header { font-family: 'Google Sans', sans-serif; }
+
+    /* --- config --- */
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 0.6rem 0.75rem;
+      margin-top: 1rem;
+    }
+    .config-grid .field { margin-bottom: 0; }
+    .config-grid label {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+    }
+    .task-row { grid-column: 1 / -1; }
+    .source-row {
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: 0.5rem; margin-top: 1rem;
+    }
+    .file-btn input { display: none; }
+
+    .panel-card {
+      background: #fff;
+      border: 1px solid #ececec;
+      border-radius: 12px;
+      padding: 1.25rem;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-label {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9a9a9a;
+      margin-bottom: 0.6rem;
+    }
+    #widget-root.columns:not(:last-child) { margin-bottom: 0.15rem; }
+    #widget-root > .column { padding-bottom: 0.375rem; }
+    #widget-root-bottom > .column { padding-top: 0.375rem; }
+
+    /* --- video --- */
+    .video-frame-wrap {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #111;
+      aspect-ratio: 640 / 368;
+    }
+    .video-frame-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .step-badge {
+      position: absolute; top: 0.5rem; left: 0.5rem;
+      background: rgba(0, 0, 0, 0.6); color: #fff;
+      font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px;
+      font-family: 'Google Sans', sans-serif;
+    }
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: #bbb; margin-right: 0.35rem; vertical-align: middle;
+    }
+    .live-dot.is-live { background: #e53935; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 50% { opacity: 0.3; } }
+    .transport {
+      margin-top: 0.9rem; display: flex; align-items: center;
+      justify-content: center; gap: 0.6rem; flex-wrap: wrap;
+    }
+    .status-line {
+      margin-top: 0.7rem; text-align: center; font-size: 0.8rem; color: #888; min-height: 1.2rem;
+    }
+    .status-line.is-error { color: #c62828; }
+
+    /* --- progress readout + chart --- */
+    .big-progress {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 2.1rem; font-weight: 700; line-height: 1; color: var(--accent);
+    }
+    .big-progress small { font-size: 0.8rem; color: #898781; font-weight: 400; margin-left: 0.4rem; }
+    .progress-bar-track { height: 8px; background: #eee; border-radius: 999px; margin: 0.5rem 0 0.7rem; overflow: hidden; }
+    .progress-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.4s ease; }
+    .chart-svg { width: 100%; height: auto; touch-action: none; cursor: crosshair; user-select: none; }
+    .grid-line { stroke: #eee; stroke-width: 1; }
+    .axis-text { font-size: 9px; fill: #aaa; font-family: 'Noto Sans', sans-serif; }
+    .dna-line { fill: none; stroke: var(--accent); stroke-width: 4.75; stroke-linecap: round; stroke-linejoin: round; }
+    .dna-dot { fill: var(--accent); opacity: 0.65; }
+    .sel-line { stroke: #333; stroke-width: 1.25; stroke-dasharray: 3 3; opacity: 0.55; }
+    .sel-dot { fill: var(--accent); stroke: #fff; stroke-width: 2; }
+    .legend { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px dashed #e2e2e2; font-size: 0.8rem; color: #888; }
+
+    /* --- description / feedback --- */
+    .desc-wrap { display: flex; gap: 1rem; align-items: flex-start; }
+    .desc-thumb { width: 150px; border-radius: 6px; flex: none; background: #111; display: none; }
+    .description-text { font-size: 1.05rem; line-height: 1.5; color: #1a1a1a; min-height: 4.5rem; flex: 1; }
+    .outcome-box { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #e2e2e2; }
+    .outcome-row { font-size: 0.9rem; margin-bottom: 0.5rem; line-height: 1.4; }
+    .outcome-row .tag { font-family: 'Google Sans', sans-serif; margin-right: 0.4rem; }
+    .feedback-log { max-height: 190px; overflow-y: auto; font-size: 0.85rem; }
+    .feedback-log div { padding: 0.3rem 0; border-bottom: 1px solid #f2f2f2; }
+    .feedback-log .t { color: #999; font-family: 'Google Sans', sans-serif; margin-right: 0.4rem; }
+    .objects-line { font-size: 0.8rem; color: #888; margin-top: 0.6rem; }
+
+    html.is-embedded .widget-header h1 { display: none; }
+    html.is-embedded .widget-header { padding-top: 1.25rem; }
+  </style>
+</head>
+
+<body>
+  <script>
+    if (window.self !== window.top) document.documentElement.classList.add('is-embedded');
+  </script>
+
+  <section class="section widget-header">
+    <div class="container is-max-desktop">
+
+      <h1 class="title is-3 mt-2 has-text-centered">D&amp;A Live Demo</h1>
+      <p class="subtitle is-6 has-text-centered">
+        <br>
+        Point a camera (or share a screen) at a robot doing a task. D&amp;A grounds the scene, describes new frames as they arrive,
+        then assesses progress and writes feedback from the running descriptions &mdash; the same decoupled pipeline as the paper, run on a stream.
+        <br>
+      </p>
+
+      <div class="config-grid">
+        <div class="field task-row">
+          <label for="task">Task</label>
+          <input class="input" id="task" type="text" value="pick up the red block and place it in the bowl">
+        </div>
+        <div class="field">
+          <label for="provider">Provider</label>
+          <div class="select is-fullwidth"><select id="provider" style="width:100%">
+            <option value="gemini">Google Gemini</option>
+            <option value="claude">Anthropic Claude</option>
+          </select></div>
+        </div>
+        <div class="field">
+          <label for="model">Model</label>
+          <input class="input" id="model" type="text" placeholder="enter model id">
+        </div>
+        <div class="field">
+          <label for="apikey">API key (stays in your browser)</label>
+          <input class="input" id="apikey" type="password" autocomplete="off" placeholder="paste key">
+        </div>
+        <div class="field">
+          <label for="interval">Capture every</label>
+          <div class="select is-fullwidth"><select id="interval" style="width:100%">
+            <option value="500">0.5 s</option>
+            <option value="1000" selected>1 s</option>
+            <option value="2000">2 s</option>
+            <option value="4000">4 s</option>
+          </select></div>
+        </div>
+      </div>
+
+      <div class="source-row">
+        <button class="button is-dark" id="btn-cam"><span class="icon is-small"><i class="fas fa-video"></i></span><span>Webcam</span></button>
+        <button class="button is-dark" id="btn-screen"><span class="icon is-small"><i class="fas fa-desktop"></i></span><span>Share screen</span></button>
+        <label class="button file-btn"><span class="icon is-small"><i class="fas fa-file-video"></i></span><span>Play a video file</span>
+          <input type="file" id="file-in" accept="video/*"></label>
+        <label class="checkbox ml-3"><input type="checkbox" id="speak"> speak feedback</label>
+        <label class="checkbox ml-3"><input type="checkbox" id="remember"> remember key</label>
+      </div>
+
+      <div class="columns mt-3" id="widget-root">
+        <!-- live video -->
+        <div class="column is-6">
+          <div class="panel-card">
+            <div class="panel-label">Stream</div>
+            <div class="video-frame-wrap">
+              <video id="video" muted playsinline></video>
+              <div class="step-badge"><span class="live-dot" id="live-dot"></span><span id="step-badge">no source</span></div>
+            </div>
+            <div class="transport">
+              <button class="button is-small is-dark" id="btn-start" disabled>
+                <span class="icon is-small"><i class="fas fa-play"></i></span><span>Start scoring</span></button>
+              <button class="button is-small" id="btn-reground" disabled title="re-detect objects on the next cycle">
+                <span class="icon is-small"><i class="fas fa-crosshairs"></i></span><span>Re-ground</span></button>
+              <button class="button is-small" id="btn-reset" title="clear history">
+                <span class="icon is-small"><i class="fas fa-redo"></i></span><span>Reset</span></button>
+            </div>
+            <div class="status-line" id="status">Pick a source, enter a key, then start scoring.</div>
+          </div>
+        </div>
+
+        <!-- progress -->
+        <div class="column is-6">
+          <div class="panel-card">
+            <div class="panel-label">Progress &mdash; D&amp;A (live)</div>
+            <div class="big-progress"><span id="big-progress">&ndash;</span><small id="big-sub"></small></div>
+            <div class="progress-bar-track"><div class="progress-bar-fill" id="bar"></div></div>
+            <svg class="chart-svg" id="chart" viewBox="0 0 520 240" preserveAspectRatio="none"></svg>
+            <div class="legend">Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="columns mt-0" id="widget-root-bottom">
+        <div class="column is-12">
+          <div class="panel-card">
+            <div class="panel-label">Grounded Description <span id="desc-time"></span></div>
+            <div class="desc-wrap">
+              <img class="desc-thumb" id="desc-thumb" alt="">
+              <div class="description-text" id="description-text">Waiting for frames&hellip;</div>
+            </div>
+            <div class="objects-line" id="objects-line"></div>
+
+            <div class="outcome-box">
+              <div class="panel-label" style="margin-bottom:0.7rem;">D&amp;A Failure &amp; Feedback Analysis</div>
+              <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
+              <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
+              <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
+            </div>
+
+            <div class="outcome-box">
+              <div class="panel-label" style="margin-bottom:0.5rem;">Feedback log</div>
+              <div class="feedback-log" id="fb-log"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <script>
+  (function () {
+    // ---------------------------------------------------------------- config
+        const MAX_WINDOW = 60;        // descriptions kept in the assessment window
+    const BATCH_MAX = 6;          // frames described per cycle
+    const MIN_NEW = 2;            // wait for at least this many new frames
+    const GROUND_FRAMES = 4;      // frames used for object grounding
+    const FRAME_W = 448;          // downscaled width sent to the VLM
+    const CHART_W = 520, CHART_H = 240, PAD_L = 30, PAD_R = 12, PAD_T = 14, PAD_B = 20;
+
+    const $ = (id) => document.getElementById(id);
+    const el = {
+      task: $('task'), provider: $('provider'), model: $('model'), key: $('apikey'),
+      interval: $('interval'), speak: $('speak'), remember: $('remember'),
+      video: $('video'), badge: $('step-badge'), dot: $('live-dot'), status: $('status'),
+      btnCam: $('btn-cam'), btnScreen: $('btn-screen'), fileIn: $('file-in'),
+      btnStart: $('btn-start'), btnReground: $('btn-reground'), btnReset: $('btn-reset'),
+      big: $('big-progress'), bigSub: $('big-sub'), bar: $('bar'), chart: $('chart'),
+      desc: $('description-text'), descTime: $('desc-time'), thumb: $('desc-thumb'), objects: $('objects-line'),
+      failure: $('outcome-failure'), feedback: $('outcome-feedback'), completion: $('outcome-completion'),
+      fbLog: $('fb-log'),
+    };
+
+    const state = {
+      stream: null, running: false, busy: false, t0: 0,
+      frames: [],            // captured, not yet described: {t, b64, thumb}
+      items: [],             // described: {t, desc, thumb, progress}
+      objects: null, objectsTask: null, needGround: true,
+      analysis: null,        // latest {failure, feedback, completion}
+      selected: null,        // index inspected on chart, null = live edge
+      captureTimer: null, lastSpoken: '',
+    };
+
+    // ---------------------------------------------------------- persistence
+    function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+    function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    el.provider.value = load('dnalive.provider') || 'gemini';
+    el.model.value = load('dnalive.model') || '';
+    const savedKey = load('dnalive.key.' + el.provider.value);
+    if (savedKey) { el.key.value = savedKey; el.remember.checked = true; }
+    el.provider.addEventListener('change', () => {
+      el.key.value = load('dnalive.key.' + el.provider.value) || '';
+      store('dnalive.provider', el.provider.value);
+    });
+    el.model.addEventListener('change', () => store('dnalive.model', el.model.value));
+
+    // --------------------------------------------------------------- status
+    function setStatus(msg, isErr) { el.status.textContent = msg; el.status.classList.toggle('is-error', !!isErr); }
+
+    // --------------------------------------------------------------- sources
+    function stopStream() {
+      if (state.stream) state.stream.getTracks().forEach((t) => t.stop());
+      state.stream = null;
+      el.video.pause();
+      el.video.removeAttribute('src');
+      el.video.srcObject = null;
+    }
+    async function useStream(getter, label) {
+      try {
+        stopStream();
+        state.stream = await getter();
+        el.video.srcObject = state.stream;
+        el.video.muted = true;
+        await el.video.play();
+        sourceReady(label);
+      } catch (e) { setStatus('Could not open source: ' + e.message, true); }
+    }
+    el.btnCam.addEventListener('click', () =>
+      useStream(() => navigator.mediaDevices.getUserMedia({ video: { width: 1280 }, audio: false }), 'webcam'));
+    el.btnScreen.addEventListener('click', () =>
+      useStream(() => navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }), 'screen'));
+    el.fileIn.addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      stopStream();
+      el.video.src = URL.createObjectURL(f);
+      el.video.loop = false;
+      el.video.muted = true;
+      try { await el.video.play(); sourceReady('video file'); } catch (err) { setStatus(err.message, true); }
+    });
+    function sourceReady(label) {
+      el.btnStart.disabled = false;
+      el.btnReground.disabled = false;
+      el.badge.textContent = label;
+      setStatus('Source ready. Click “Start scoring”.');
+    }
+
+    // ---------------------------------------------------------- frame capture
+    const canvas = document.createElement('canvas');
+    function grabFrame() {
+      const v = el.video;
+      if (!v.videoWidth) return null;
+      canvas.width = FRAME_W;
+      canvas.height = Math.round(FRAME_W * v.videoHeight / v.videoWidth);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      const url = canvas.toDataURL('image/jpeg', 0.7);
+      return { t: (performance.now() - state.t0) / 1000, b64: url.split(',')[1], thumb: url };
+    }
+    function captureTick() {
+      if (!state.running || el.video.paused) return;
+      const f = grabFrame();
+      if (f) state.frames.push(f);
+      // never let an unprocessed backlog grow without bound
+      if (state.frames.length > 60) state.frames.splice(0, state.frames.length - 60);
+      el.badge.textContent = `t = ${f ? f.t.toFixed(0) : '–'} s · ${state.frames.length} queued`;
+    }
+
+    // -------------------------------------------------------------- VLM calls
+    function parseJSON(text) {
+      let s = (text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const a = s.search(/[\[{]/);
+      if (a > 0) s = s.slice(a);
+      const v = JSON.parse(s);
+      return Array.isArray(v) ? v[0] : v;   // prompts ask for [ {...} ]
+    }
+
+    async function callVLM(prompt, frames) {
+      const key = el.key.value.trim();
+      if (!key) throw new Error('API key missing');
+      const model = el.model.value.trim();
+      if (!model) throw new Error('Model id missing');
+      if (el.provider.value === 'gemini') {
+        const parts = [{ text: prompt }];
+        (frames || []).forEach((f) => parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } }));
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json' } }),
+        });
+        if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+        const j = await r.json();
+        const txt = (((j.candidates || [])[0] || {}).content || {}).parts;
+        if (!txt) throw new Error('Gemini returned no content');
+        return parseJSON(txt.map((p) => p.text || '').join(''));
+      }
+      const content = [];
+      (frames || []).forEach((f) => content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f.b64 } }));
+      content.push({ type: 'text', text: prompt });
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', 'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content }] }),
+      });
+      if (!r.ok) throw new Error(`Claude ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const j = await r.json();
+      return parseJSON((j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
+    }
+
+    // ------------------------------------------------- D&A prompts (stages 1-3)
+    // Adapted from dna/functions/description.py and progress.py. Differences for
+    // streaming: frames arrive in batches, so the describer gets the previous
+    // description for continuity, and the assessor is told the last entry is "now".
+    function promptGround(task) {
+      return `<role>
+You are an expert in object recognition.
+</role>
+
+<task>
+1. all_objects: list objects that are in the video.
+2. are some objects relevant to the following task? Task: "${task}" If yes, list them in task_objects. If no, return an empty list for task_objects.
+</task>
+
+<output_format>
+Each single object should have a unique identifier. Respond with a list of objects in the following JSON format:
+[
+    {
+        "all_objects": [str, str, ...],
+        "task_objects": [str, str, ...]
+    }
+]
+</output_format>`;
+    }
+
+    function promptDescribe(objects, n, prevDesc, times) {
+      return `<role>
+You are an expert in scene understanding. Provide highly detailed descriptions including the robot and state of the following objects ${JSON.stringify(objects)} at each timestep. Describe robot motion and distance between robot and objects.
+</role>
+
+<constraints>
+- The images are consecutive frames from a live camera, in time order. They may come from a third-person or wrist-mounted (robot POV) camera.
+- Do not make any judgement about what the robot is trying to accomplish. The robot is imperfect and might do things that don't make any sense to you.
+- Describe the scene as objectively as possible.
+${prevDesc ? `- For continuity only, the description of the frame just before these was: "${prevDesc}". Describe what you see in each new frame; do not copy this.` : ''}
+</constraints>
+
+Frame timestamps (seconds): ${JSON.stringify(times.map((t) => +t.toFixed(1)))}
+
+<output_format>
+Respond with exactly ${n} descriptions, one string per image, in the following JSON format:
+[
+    {
+        "descriptions": [str, str, ...]
+    }
+]
+</output_format>`;
+    }
+
+    function promptAssess(task, items) {
+      const dict = {}; items.forEach((it, i) => { dict[i] = it.desc; });
+      const times = items.map((it) => +it.t.toFixed(1));
+      return `
+Task:
+"${task}"
+
+Scene descriptions (live stream, index 0 is the oldest kept frame and the last index is the current state):
+${JSON.stringify(dict)}
+
+Frame timestamps in seconds: ${JSON.stringify(times)}
+
+1. The task text fixes which objects count (category, color, shape, and wording). Scene descriptions are the only evidence of what is in the environment. Do not "ground" the task by renaming scene objects to match the task.
+2. For each object the task requires, it may be tied only to scene mentions that refer to that same entity without contradiction. Do not substitute a different object because it could serve the same role. If attributes in the scene conflict with the task's description of that object, or no clear referent exists, treat that requirement as absent.
+3. You may align short paraphrases across timesteps only when they plainly denote the same physical object already present in the scene—not to map task nouns onto other objects.
+4. If ALL required objects are absent by these rules, the task cannot be completed in this scene: use all 0% progress and explain in "completion state". Otherwise define precisely what the environment would look like if the task were FULLY and COMPLETELY finished (not started, not halfway—entirely done). Reward partial progress if the task is only partially completed and some required objects are present.
+5. For each timestep, reason about the % progress towards that fully completed state.
+6. Progress is defined as % progress towards the fully completed state. Progress does not have to be monotonic, i.e., the robot can reverse progress.
+7. If the task is not yet fully completed, describe what is going wrong or missing at the CURRENT (last) timestep.
+8. If the task is not yet fully completed, give short, actionable feedback on what the robot should do differently RIGHT NOW. This is read live, so keep it to one or two sentences.
+
+Respond with exactly ${items.length} progress values (ordered by frame) in the following JSON format:
+[
+    {
+        "failure": str,
+        "feedback": str,
+        "completion state": str,
+        "progress": [int, int, ...]
+    }
+]
+
+Before you respond, reflect whether the task is actually fully completed, otherwise adjust the progress values!`;
+    }
+
+    // --------------------------------------------------------- pipeline cycle
+    function pickEven(arr, k) {
+      if (arr.length <= k) return arr.slice();
+      const out = [];
+      for (let i = 0; i < k; i++) out.push(arr[Math.round(i * (arr.length - 1) / (k - 1))]);
+      return out;
+    }
+
+    async function cycle() {
+      if (state.busy || !state.running) return;
+      const task = el.task.value.trim();
+      if (!task) { setStatus('Enter a task first.', true); return; }
+      if (state.frames.length < MIN_NEW) return;
+      state.busy = true;
+      const t0 = performance.now();
+      try {
+        // Stage 1: grounding (once per task, or on demand)
+        if (state.needGround || state.objectsTask !== task || !state.objects) {
+          setStatus('Grounding objects…');
+          const g = await callVLM(promptGround(task), pickEven(state.frames, GROUND_FRAMES));
+          state.objects = g.all_objects || [];
+          state.objectsTask = task;
+          state.needGround = false;
+          el.objects.textContent = 'objects: ' + state.objects.join(', ') +
+            (g.task_objects && g.task_objects.length ? '  ·  task-relevant: ' + g.task_objects.join(', ') : '');
+        }
+
+        // Stage 2: describe a batch of the frames that arrived since last time
+        const pending = state.frames.splice(0, state.frames.length);
+        const batch = pickEven(pending, BATCH_MAX);
+        setStatus(`Describing ${batch.length} frames…`);
+        const prev = state.items.length ? state.items[state.items.length - 1].desc : null;
+        const d = await callVLM(promptDescribe(state.objects, batch.length, prev, batch.map((f) => f.t)), batch);
+        let descs = d.descriptions || (d.description ? [d.description] : []);
+        if (!Array.isArray(descs) || !descs.length) throw new Error('no descriptions returned');
+        descs = descs.slice(0, batch.length);
+        descs.forEach((desc, i) => state.items.push({ t: batch[i].t, desc: String(desc), thumb: batch[i].thumb, progress: null }));
+        if (state.items.length > MAX_WINDOW) state.items.splice(0, state.items.length - MAX_WINDOW);
+
+        // Stage 3: assess — text only, over the whole rolling description history
+        setStatus('Assessing progress…');
+        const a = await callVLM(promptAssess(task, state.items), null);
+        let prog = Array.isArray(a.progress) ? a.progress.map((x) => Math.max(0, Math.min(100, +x || 0))) : [];
+        if (!prog.length) throw new Error('no progress returned');
+        // Tolerate off-by-few lengths: align to the newest entries.
+        if (prog.length > state.items.length) prog = prog.slice(prog.length - state.items.length);
+        const off = state.items.length - prog.length;
+        prog.forEach((p, i) => { state.items[off + i].progress = p; });
+        const lastKnown = (i) => { for (let j = i; j >= 0; j--) if (state.items[j].progress !== null) return state.items[j].progress; return 0; };
+        state.items.forEach((it, i) => { if (it.progress === null) it.progress = lastKnown(i - 1); });
+
+        state.analysis = { failure: a.failure || '', feedback: a.feedback || '', completion: a['completion state'] || '' };
+        const lat = ((performance.now() - t0) / 1000).toFixed(1);
+        setStatus(`Updated in ${lat}s · ${state.frames.length} frames queued`);
+        pushFeedback();
+      } catch (e) {
+        console.error(e);
+        setStatus(e.message, true);
+        await new Promise((r) => setTimeout(r, 2500));
+      } finally {
+        state.busy = false;
+        render();
+      }
+    }
+
+    function pushFeedback() {
+      const last = state.items[state.items.length - 1];
+      const fb = state.analysis && state.analysis.feedback;
+      if (!fb || last.progress >= 100) return;
+      if (fb === state.lastSpoken) return;
+      state.lastSpoken = fb;
+      const row = document.createElement('div');
+      row.innerHTML = `<span class="t">${last.t.toFixed(0)}s · ${last.progress}%</span>`;
+      row.appendChild(document.createTextNode(fb));
+      el.fbLog.prepend(row);
+      if (el.speak.checked && 'speechSynthesis' in window) {
+        speechSynthesis.cancel();
+        speechSynthesis.speak(new SpeechSynthesisUtterance(fb));
+      }
+    }
+
+    // ----------------------------------------------------------------- render
+    function svg(tag, attrs) {
+      const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      Object.keys(attrs).forEach((k) => n.setAttribute(k, attrs[k]));
+      return n;
+    }
+    const yFor = (v) => CHART_H - PAD_B - Math.max(0, Math.min(1, v)) * (CHART_H - PAD_T - PAD_B);
+    let domain = [0, 10];
+    const xFor = (t) => PAD_L + ((t - domain[0]) / (domain[1] - domain[0])) * (CHART_W - PAD_L - PAD_R);
+
+    function drawChart() {
+      const s = el.chart;
+      s.innerHTML = '';
+      [0, 25, 50, 75, 100].forEach((v) => {
+        const y = yFor(v / 100);
+        s.appendChild(svg('line', { x1: PAD_L, x2: CHART_W - PAD_R, y1: y, y2: y, class: 'grid-line' }));
+        const t = svg('text', { x: PAD_L - 5, y: y + 3, 'text-anchor': 'end', class: 'axis-text' }); t.textContent = v; s.appendChild(t);
+      });
+      const items = state.items;
+      if (!items.length) return;
+      domain = [items[0].t, Math.max(items[items.length - 1].t, items[0].t + 10)];
+      [0, 0.25, 0.5, 0.75, 1].forEach((f) => {
+        const tv = domain[0] + f * (domain[1] - domain[0]);
+        const t = svg('text', { x: xFor(tv), y: CHART_H - 5, 'text-anchor': f === 0 ? 'start' : f === 1 ? 'end' : 'middle', class: 'axis-text' });
+        t.textContent = tv.toFixed(0) + 's'; s.appendChild(t);
+      });
+      s.appendChild(svg('polyline', { points: items.map((it) => `${xFor(it.t)},${yFor(it.progress / 100)}`).join(' '), class: 'dna-line' }));
+      items.forEach((it) => s.appendChild(svg('circle', { cx: xFor(it.t), cy: yFor(it.progress / 100), r: 5, class: 'dna-dot' })));
+      const si = state.selected === null ? items.length - 1 : state.selected;
+      const sel = items[Math.min(si, items.length - 1)];
+      s.appendChild(svg('line', { x1: xFor(sel.t), x2: xFor(sel.t), y1: PAD_T, y2: CHART_H - PAD_B, class: 'sel-line' }));
+      s.appendChild(svg('circle', { cx: xFor(sel.t), cy: yFor(sel.progress / 100), r: 5, class: 'sel-dot' }));
+    }
+
+    function render() {
+      const items = state.items;
+      drawChart();
+      if (!items.length) return;
+      const live = state.selected === null;
+      const idx = live ? items.length - 1 : Math.min(state.selected, items.length - 1);
+      const it = items[idx];
+      const latest = items[items.length - 1];
+      el.big.textContent = latest.progress + '%';
+      el.bigSub.textContent = live ? 'now' : `inspecting t = ${it.t.toFixed(0)} s (${it.progress}%)`;
+      el.bar.style.width = latest.progress + '%';
+      el.desc.textContent = it.desc;
+      el.descTime.textContent = `— t = ${it.t.toFixed(1)} s`;
+      el.thumb.src = it.thumb; el.thumb.style.display = 'block';
+      if (state.analysis) {
+        const done = latest.progress >= 100;
+        el.failure.textContent = done ? 'none — task complete' : (state.analysis.failure || '–');
+        el.feedback.textContent = done ? '–' : (state.analysis.feedback || '–');
+        el.completion.textContent = state.analysis.completion || '–';
+      }
+    }
+
+    function idxFromClientX(x) {
+      const r = el.chart.getBoundingClientRect();
+      const relX = ((x - r.left) / r.width) * CHART_W;
+      const t = domain[0] + ((relX - PAD_L) / (CHART_W - PAD_L - PAD_R)) * (domain[1] - domain[0]);
+      let best = 0;
+      state.items.forEach((it, i) => { if (Math.abs(it.t - t) < Math.abs(state.items[best].t - t)) best = i; });
+      return best;
+    }
+    let dragging = false;
+    el.chart.addEventListener('pointerdown', (e) => { if (!state.items.length) return; dragging = true; el.chart.setPointerCapture(e.pointerId); state.selected = idxFromClientX(e.clientX); render(); });
+    el.chart.addEventListener('pointermove', (e) => { if (dragging) { state.selected = idxFromClientX(e.clientX); render(); } });
+    const release = () => { if (dragging) { dragging = false; state.selected = null; render(); } };
+    el.chart.addEventListener('pointerup', release);
+    el.chart.addEventListener('pointercancel', release);
+
+    // --------------------------------------------------------------- controls
+    function start() {
+      if (el.remember.checked) store('dnalive.key.' + el.provider.value, el.key.value.trim());
+      else store('dnalive.key.' + el.provider.value, null);
+      store('dnalive.model', el.model.value);
+      state.running = true;
+      if (!state.t0) state.t0 = performance.now();
+      el.dot.classList.add('is-live');
+      el.btnStart.innerHTML = '<span class="icon is-small"><i class="fas fa-pause"></i></span><span>Pause</span>';
+      clearInterval(state.captureTimer);
+      state.captureTimer = setInterval(() => { captureTick(); cycle(); }, parseInt(el.interval.value, 10));
+      setStatus('Scoring…');
+    }
+    function pause() {
+      state.running = false;
+      clearInterval(state.captureTimer);
+      el.dot.classList.remove('is-live');
+      el.btnStart.innerHTML = '<span class="icon is-small"><i class="fas fa-play"></i></span><span>Start scoring</span>';
+      setStatus('Paused.');
+    }
+    el.btnStart.addEventListener('click', () => (state.running ? pause() : start()));
+    el.interval.addEventListener('change', () => { if (state.running) { pause(); start(); } });
+    el.btnReground.addEventListener('click', () => { state.needGround = true; setStatus('Will re-ground on the next cycle.'); });
+    el.btnReset.addEventListener('click', () => {
+      state.frames = []; state.items = []; state.analysis = null; state.selected = null;
+      state.needGround = true; state.t0 = performance.now(); state.lastSpoken = '';
+      el.fbLog.innerHTML = ''; el.objects.textContent = ''; el.desc.textContent = 'Waiting for frames…';
+      el.thumb.style.display = 'none'; el.big.textContent = '–'; el.bigSub.textContent = ''; el.bar.style.width = '0';
+      el.failure.textContent = el.feedback.textContent = el.completion.textContent = '–';
+      drawChart();
+      setStatus('History cleared.');
+    });
+    el.task.addEventListener('change', () => { state.needGround = true; });
+
+    drawChart();
+  })();
+  </script>
+</body>
+
+</html>
