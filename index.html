@@ -39,6 +39,7 @@
       color: #9a9a9a;
     }
     .task-row { grid-column: 1 / -1; }
+    .provider-hint { text-align: center; font-size: 0.78rem; color: #9a9a9a; margin-top: 0.6rem; min-height: 1.1rem; }
     .source-row {
       display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
       gap: 0.5rem; margin-top: 1rem;
@@ -155,7 +156,10 @@
           <label for="provider">Provider</label>
           <div class="select is-fullwidth"><select id="provider" style="width:100%">
             <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI GPT</option>
             <option value="claude">Anthropic Claude</option>
+            <option value="openrouter">OpenRouter (any model)</option>
+            <option value="muse">Meta Muse Spark</option>
           </select></div>
         </div>
         <div class="field">
@@ -167,6 +171,15 @@
           <input class="input" id="apikey" type="password" autocomplete="off" placeholder="paste key">
         </div>
         <div class="field">
+          <label for="thinking">Reasoning effort</label>
+          <div class="select is-fullwidth"><select id="thinking" style="width:100%">
+            <option value="">Provider default</option>
+            <option value="LOW">Low</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HIGH">High</option>
+          </select></div>
+        </div>
+        <div class="field">
           <label for="interval">Capture every</label>
           <div class="select is-fullwidth"><select id="interval" style="width:100%">
             <option value="500">0.5 s</option>
@@ -176,6 +189,8 @@
           </select></div>
         </div>
       </div>
+
+      <p class="provider-hint" id="provider-hint"></p>
 
       <div class="source-row">
         <button class="button is-dark" id="btn-cam"><span class="icon is-small"><i class="fas fa-video"></i></span><span>Webcam</span></button>
@@ -260,7 +275,7 @@
     const $ = (id) => document.getElementById(id);
     const el = {
       task: $('task'), provider: $('provider'), model: $('model'), key: $('apikey'),
-      interval: $('interval'), speak: $('speak'), remember: $('remember'),
+      interval: $('interval'), thinking: $('thinking'), hint: $('provider-hint'), speak: $('speak'), remember: $('remember'),
       video: $('video'), badge: $('step-badge'), dot: $('live-dot'), status: $('status'),
       btnCam: $('btn-cam'), btnScreen: $('btn-screen'), fileIn: $('file-in'),
       btnStart: $('btn-start'), btnReground: $('btn-reground'), btnReset: $('btn-reset'),
@@ -287,7 +302,17 @@
     el.model.value = load('dnalive.model') || '';
     const savedKey = load('dnalive.key.' + el.provider.value);
     if (savedKey) { el.key.value = savedKey; el.remember.checked = true; }
+    const HINTS = {
+      gemini: 'Frames are sent as images to generateContent. Reasoning maps to thinkingLevel.',
+      openai: 'Chat Completions with JSON mode. Reasoning effort is only sent when set, and only reasoning models (o-series, gpt-5) accept it.',
+      claude: 'Messages API, called directly from the browser. Reasoning enables extended thinking with a token budget.',
+      openrouter: "OpenAI-compatible endpoint; use slugs like vendor/model. Reasoning is passed as OpenRouter's normalized effort.",
+      muse: 'Meta Responses API with image frames. Browser calls depend on the endpoint allowing CORS; reasoning effort is ignored.',
+    };
+    const showHint = () => { el.hint.textContent = HINTS[el.provider.value] || ''; };
+    showHint();
     el.provider.addEventListener('change', () => {
+      showHint();
       el.key.value = load('dnalive.key.' + el.provider.value) || '';
       store('dnalive.provider', el.provider.value);
     });
@@ -364,40 +389,74 @@
       return Array.isArray(v) ? v[0] : v;   // prompts ask for [ {...} ]
     }
 
+    const EFFORT = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high' };
+    const CLAUDE_BUDGET = { LOW: 1024, MEDIUM: 4096, HIGH: 12000 };
+    const JSON_SUFFIX = '\n\nRespond with valid JSON only (a top-level array), with no markdown fences.';
+
+    async function postJSON(url, headers, body, label) {
+      const r = await fetch(url, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify(body) });
+      if (!r.ok) throw new Error(`${label} ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      return r.json();
+    }
+
     async function callVLM(prompt, frames) {
       const key = el.key.value.trim();
       if (!key) throw new Error('API key missing');
       const model = el.model.value.trim();
       if (!model) throw new Error('Model id missing');
-      if (el.provider.value === 'gemini') {
+      const provider = el.provider.value;
+      const effort = el.thinking.value;           // '' = provider default (nothing sent)
+      frames = frames || [];
+
+      if (provider === 'gemini') {
         const parts = [{ text: prompt }];
-        (frames || []).forEach((f) => parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } }));
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-          body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: 'application/json' } }),
-        });
-        if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
-        const j = await r.json();
-        const txt = (((j.candidates || [])[0] || {}).content || {}).parts;
-        if (!txt) throw new Error('Gemini returned no content');
-        return parseJSON(txt.map((p) => p.text || '').join(''));
+        frames.forEach((f) => parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } }));
+        const generationConfig = { responseMimeType: 'application/json' };
+        if (effort) generationConfig.thinkingConfig = { thinkingLevel: EFFORT[effort] };
+        const j = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          { 'x-goog-api-key': key }, { contents: [{ parts }], generationConfig }, 'Gemini');
+        const ps = (((j.candidates || [])[0] || {}).content || {}).parts;
+        if (!ps) throw new Error('Gemini returned no content');
+        return parseJSON(ps.filter((p) => !p.thought).map((p) => p.text || '').join(''));
       }
-      const content = [];
-      (frames || []).forEach((f) => content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f.b64 } }));
-      content.push({ type: 'text', text: prompt });
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json', 'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content }] }),
-      });
-      if (!r.ok) throw new Error(`Claude ${r.status}: ${(await r.text()).slice(0, 200)}`);
-      const j = await r.json();
-      return parseJSON((j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
+
+      if (provider === 'claude') {
+        const content = frames.map((f) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f.b64 } }));
+        content.push({ type: 'text', text: prompt });
+        const body = { model, max_tokens: 4096, messages: [{ role: 'user', content }] };
+        if (effort) { body.thinking = { type: 'enabled', budget_tokens: CLAUDE_BUDGET[effort] }; body.max_tokens = CLAUDE_BUDGET[effort] + 4096; }
+        const j = await postJSON('https://api.anthropic.com/v1/messages',
+          { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body, 'Claude');
+        return parseJSON((j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
+      }
+
+      if (provider === 'openai' || provider === 'openrouter') {
+        const content = [{ type: 'text', text: provider === 'openrouter' ? prompt + JSON_SUFFIX : prompt }];
+        frames.forEach((f) => content.push({ type: 'image_url', image_url: { url: f.thumb, detail: 'low' } }));
+        const body = { model: provider === 'openrouter' ? model.replace(/^openrouter\//, '') : model, messages: [{ role: 'user', content }] };
+        if (provider === 'openai') {
+          body.response_format = { type: 'json_object' };
+          if (effort) body.reasoning_effort = EFFORT[effort];
+        } else if (effort) {
+          body.reasoning = { effort: EFFORT[effort] };
+        }
+        const url = provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://openrouter.ai/api/v1/chat/completions';
+        const j = await postJSON(url, { Authorization: 'Bearer ' + key }, body, provider === 'openai' ? 'OpenAI' : 'OpenRouter');
+        const msg = (((j.choices || [])[0] || {}).message || {}).content;
+        if (!msg) throw new Error('no content returned');
+        return parseJSON(msg);
+      }
+
+      // muse: Responses-style API
+      const content = [{ type: 'input_text', text: prompt + '\n\nRespond with valid JSON only.' }];
+      frames.forEach((f) => content.push({ type: 'input_image', image_url: f.thumb }));
+      const j = await postJSON('https://api.meta.ai/v1/responses', { Authorization: 'Bearer ' + key },
+        { model, input: [{ role: 'user', content }], stream: false }, 'Muse');
+      let text = j.output_text;
+      if (!text) for (const item of (j.output || [])) for (const part of (item.content || [])) if (!text && part.text) text = part.text;
+      if (!text && j.choices) text = (j.choices[0].message || {}).content;
+      if (!text) throw new Error('Muse returned no text');
+      return parseJSON(text);
     }
 
     // ------------------------------------------------- D&A prompts (stages 1-3)
