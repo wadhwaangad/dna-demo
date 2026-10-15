@@ -126,16 +126,43 @@
     .feedback-log .t { color: #999; font-family: 'Google Sans', sans-serif; margin-right: 0.4rem; }
     .objects-line { font-size: 0.8rem; color: #888; margin-top: 0.6rem; }
 
+    /* --- key gate --- */
+    #gate {
+      position: fixed; inset: 0; z-index: 100; background: #fff;
+      display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+    }
+    #gate form { width: 100%; max-width: 420px; text-align: center; }
+    #gate .gate-err { color: #c62828; font-size: 0.85rem; min-height: 1.2rem; margin-top: 0.6rem; }
+    body.locked #app { display: none; }
+    .dna-line.naive { stroke: #1e88e5; stroke-width: 3; stroke-dasharray: 7 5; }
+    .naive-dot { fill: #1e88e5; opacity: 0.65; }
+    .key-swatch { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--accent); vertical-align: middle; margin: 0 0.3rem 0 0.8rem; }
+    .key-swatch.naive { border-top: 3px dashed #1e88e5; }
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 700px) { .compare-grid { grid-template-columns: 1fr; } }
+    .compare-grid .col-title { font-family: 'Google Sans', sans-serif; font-weight: 700; margin-bottom: 0.5rem; }
+
     html.is-embedded .widget-header h1 { display: none; }
     html.is-embedded .widget-header { padding-top: 1.25rem; }
   </style>
 </head>
 
-<body>
+<body class="locked">
   <script>
     if (window.self !== window.top) document.documentElement.classList.add('is-embedded');
   </script>
 
+  <div id="gate">
+    <form id="gate-form" autocomplete="off">
+      <h1 class="title is-4">D&amp;A Live Demo</h1>
+      <p class="subtitle is-6">Enter your OpenRouter API key to continue. It is kept in memory only and is gone when you close or reload the tab.</p>
+      <input class="input" id="gate-key" type="password" autocomplete="off" placeholder="sk-or-..." autofocus>
+      <button class="button is-dark mt-3" id="gate-btn" type="submit">Continue</button>
+      <div class="gate-err" id="gate-err"></div>
+    </form>
+  </div>
+
+  <div id="app">
   <section class="section widget-header">
     <div class="container is-max-desktop">
 
@@ -153,30 +180,25 @@
           <input class="input" id="task" type="text" value="pick up the red block and place it in the bowl">
         </div>
         <div class="field">
-          <label for="provider">Provider</label>
-          <div class="select is-fullwidth"><select id="provider" style="width:100%">
-            <option value="gemini">Google Gemini</option>
-            <option value="openai">OpenAI GPT</option>
-            <option value="claude">Anthropic Claude</option>
-            <option value="openrouter">OpenRouter (any model)</option>
-            <option value="muse">Meta Muse Spark</option>
-          </select></div>
-        </div>
-        <div class="field">
-          <label for="model">Model</label>
-          <input class="input" id="model" type="text" placeholder="enter model id">
-        </div>
-        <div class="field">
-          <label for="apikey">API key (stays in your browser)</label>
-          <input class="input" id="apikey" type="password" autocomplete="off" placeholder="paste key">
+          <label for="model">OpenRouter model</label>
+          <input class="input" id="model" type="text" value="google/gemini-2.5-flash" placeholder="vendor/model">
         </div>
         <div class="field">
           <label for="thinking">Reasoning effort</label>
           <div class="select is-fullwidth"><select id="thinking" style="width:100%">
-            <option value="">Provider default</option>
             <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
+            <option value="MEDIUM" selected>Medium</option>
             <option value="HIGH">High</option>
+          </select></div>
+        </div>
+        <div class="field">
+          <label for="nframes">Frames scored</label>
+          <div class="select is-fullwidth"><select id="nframes" style="width:100%">
+            <option value="8">8 (repo default)</option>
+            <option value="12">12</option>
+            <option value="14" selected>14</option>
+            <option value="16">16</option>
+            <option value="20">20</option>
           </select></div>
         </div>
         <div class="field">
@@ -190,15 +212,12 @@
         </div>
       </div>
 
-      <p class="provider-hint" id="provider-hint"></p>
-
       <div class="source-row">
         <button class="button is-dark" id="btn-cam"><span class="icon is-small"><i class="fas fa-video"></i></span><span>Webcam</span></button>
         <button class="button is-dark" id="btn-screen"><span class="icon is-small"><i class="fas fa-desktop"></i></span><span>Share screen</span></button>
         <label class="button file-btn"><span class="icon is-small"><i class="fas fa-file-video"></i></span><span>Play a video file</span>
           <input type="file" id="file-in" accept="video/*"></label>
         <label class="checkbox ml-3"><input type="checkbox" id="speak"> speak feedback</label>
-        <label class="checkbox ml-3"><input type="checkbox" id="remember"> remember key</label>
       </div>
 
       <div class="columns mt-3" id="widget-root">
@@ -211,14 +230,14 @@
               <div class="step-badge"><span class="live-dot" id="live-dot"></span><span id="step-badge">no source</span></div>
             </div>
             <div class="transport">
-              <button class="button is-small is-dark" id="btn-start" disabled>
-                <span class="icon is-small"><i class="fas fa-play"></i></span><span>Start scoring</span></button>
-              <button class="button is-small" id="btn-reground" disabled title="re-detect objects on the next cycle">
-                <span class="icon is-small"><i class="fas fa-crosshairs"></i></span><span>Re-ground</span></button>
+              <button class="button is-small is-danger" id="btn-record" disabled>
+                <span class="icon is-small"><i class="fas fa-circle"></i></span><span>Record</span></button>
+              <button class="button is-small is-dark" id="btn-stop" disabled>
+                <span class="icon is-small"><i class="fas fa-stop"></i></span><span>Stop &amp; score</span></button>
               <button class="button is-small" id="btn-reset" title="clear history">
                 <span class="icon is-small"><i class="fas fa-redo"></i></span><span>Reset</span></button>
             </div>
-            <div class="status-line" id="status">Pick a source, enter a key, then start scoring.</div>
+            <div class="status-line" id="status">1. Pick a source &rarr; 2. Record &rarr; 3. Stop &amp; score (scoring starts when you stop).</div>
           </div>
         </div>
 
@@ -228,8 +247,8 @@
             <div class="panel-label">Progress &mdash; D&amp;A (live)</div>
             <div class="big-progress"><span id="big-progress">&ndash;</span><small id="big-sub"></small></div>
             <div class="progress-bar-track"><div class="progress-bar-fill" id="bar"></div></div>
-            <svg class="chart-svg" id="chart" viewBox="0 0 520 240" preserveAspectRatio="none"></svg>
-            <div class="legend">Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
+            <svg class="chart-svg" id="chart" viewBox="0 0 520 240" ></svg>
+            <div class="legend"><span class="key-swatch"></span>D&amp;A<span class="key-swatch naive"></span>Naive (direct from frames)<br>Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
           </div>
         </div>
       </div>
@@ -245,10 +264,21 @@
             <div class="objects-line" id="objects-line"></div>
 
             <div class="outcome-box">
-              <div class="panel-label" style="margin-bottom:0.7rem;">D&amp;A Failure &amp; Feedback Analysis</div>
-              <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
-              <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
-              <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
+              <div class="panel-label" style="margin-bottom:0.7rem;">Failure &amp; Feedback &mdash; D&amp;A vs Naive</div>
+              <div class="compare-grid">
+                <div>
+                  <div class="col-title" style="color:var(--accent)">D&amp;A</div>
+                  <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
+                  <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
+                  <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
+                </div>
+                <div>
+                  <div class="col-title" style="color:#1e88e5">Naive</div>
+                  <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="naive-failure">&ndash;</span></div>
+                  <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="naive-feedback">&ndash;</span></div>
+                  <div class="outcome-row"><span class="tag is-info is-light">progress</span><span id="naive-progress">&ndash;</span></div>
+                </div>
+              </div>
             </div>
 
             <div class="outcome-box">
@@ -261,62 +291,58 @@
 
     </div>
   </section>
+  </div>
 
   <script>
   (function () {
     // ---------------------------------------------------------------- config
-        const MAX_WINDOW = 60;        // descriptions kept in the assessment window
-    const BATCH_MAX = 6;          // frames described per cycle
-    const MIN_NEW = 2;            // wait for at least this many new frames
-    const GROUND_FRAMES = 4;      // frames used for object grounding
-    const FRAME_W = 448;          // downscaled width sent to the VLM
-    const CHART_W = 520, CHART_H = 240, PAD_L = 30, PAD_R = 12, PAD_T = 14, PAD_B = 20;
+    const MAX_FRAMES = 300;       // recording auto-stops at this many frames
+    // frames are sent at the source's native resolution, as in the dna repo
+    const CHART_W = 520, CHART_H = 240, PAD_L = 30, PAD_R = 16, PAD_T = 14, PAD_B = 20;
 
     const $ = (id) => document.getElementById(id);
     const el = {
-      task: $('task'), provider: $('provider'), model: $('model'), key: $('apikey'),
-      interval: $('interval'), thinking: $('thinking'), hint: $('provider-hint'), speak: $('speak'), remember: $('remember'),
+      task: $('task'), model: $('model'),
+      interval: $('interval'), thinking: $('thinking'), nframes: $('nframes'), speak: $('speak'),
+      naiveFailure: $('naive-failure'), naiveFeedback: $('naive-feedback'), naiveProgress: $('naive-progress'),
       video: $('video'), badge: $('step-badge'), dot: $('live-dot'), status: $('status'),
       btnCam: $('btn-cam'), btnScreen: $('btn-screen'), fileIn: $('file-in'),
-      btnStart: $('btn-start'), btnReground: $('btn-reground'), btnReset: $('btn-reset'),
+      btnRecord: $('btn-record'), btnStop: $('btn-stop'), btnReset: $('btn-reset'),
       big: $('big-progress'), bigSub: $('big-sub'), bar: $('bar'), chart: $('chart'),
       desc: $('description-text'), descTime: $('desc-time'), thumb: $('desc-thumb'), objects: $('objects-line'),
       failure: $('outcome-failure'), feedback: $('outcome-feedback'), completion: $('outcome-completion'),
       fbLog: $('fb-log'),
     };
 
+    let API_KEY = '';   // memory only: never written to storage
     const state = {
-      stream: null, running: false, busy: false, t0: 0,
+      stream: null, recording: false, scoring: false, busy: false, t0: 0,
       frames: [],            // captured, not yet described: {t, b64, thumb}
-      items: [],             // described: {t, desc, thumb, progress}
+      items: [],             // described: {t, desc, thumb, progress, naive}
       objects: null, objectsTask: null, needGround: true,
       analysis: null,        // latest {failure, feedback, completion}
+      naiveAnalysis: null,   // latest {failure, feedback}
       selected: null,        // index inspected on chart, null = live edge
       captureTimer: null, lastSpoken: '',
     };
 
-    // ---------------------------------------------------------- persistence
-    function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
-    function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-    el.provider.value = load('dnalive.provider') || 'gemini';
-    el.model.value = load('dnalive.model') || '';
-    const savedKey = load('dnalive.key.' + el.provider.value);
-    if (savedKey) { el.key.value = savedKey; el.remember.checked = true; }
-    const HINTS = {
-      gemini: 'Frames are sent as images to generateContent. Reasoning maps to thinkingLevel.',
-      openai: 'Chat Completions with JSON mode. Reasoning effort is only sent when set, and only reasoning models (o-series, gpt-5) accept it.',
-      claude: 'Messages API, called directly from the browser. Reasoning enables extended thinking with a token budget.',
-      openrouter: "OpenAI-compatible endpoint; use slugs like vendor/model. Reasoning is passed as OpenRouter's normalized effort.",
-      muse: 'Meta Responses API with image frames. Browser calls depend on the endpoint allowing CORS; reasoning effort is ignored.',
-    };
-    const showHint = () => { el.hint.textContent = HINTS[el.provider.value] || ''; };
-    showHint();
-    el.provider.addEventListener('change', () => {
-      showHint();
-      el.key.value = load('dnalive.key.' + el.provider.value) || '';
-      store('dnalive.provider', el.provider.value);
+    // ------------------------------------------------------------- key gate
+    // Remove anything an earlier version of this page may have stored.
+    try { Object.keys(localStorage).filter((k) => k.indexOf('dnalive.') === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
+    $('gate-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const key = $('gate-key').value.trim(), err = $('gate-err'), btn = $('gate-btn');
+      if (!key) { err.textContent = 'Please enter a key.'; return; }
+      btn.classList.add('is-loading'); err.textContent = '';
+      try {
+        const r = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: 'Bearer ' + key } });
+        if (r.status === 401 || r.status === 403) { err.textContent = 'OpenRouter rejected that key.'; btn.classList.remove('is-loading'); return; }
+      } catch (ex) { /* network hiccup on the check: let them in, real calls will surface any problem */ }
+      API_KEY = key;
+      $('gate-key').value = '';
+      document.body.classList.remove('locked');
+      $('gate').remove();
     });
-    el.model.addEventListener('change', () => store('dnalive.model', el.model.value));
 
     // --------------------------------------------------------------- status
     function setStatus(msg, isErr) { el.status.textContent = msg; el.status.classList.toggle('is-error', !!isErr); }
@@ -353,10 +379,9 @@
       try { await el.video.play(); sourceReady('video file'); } catch (err) { setStatus(err.message, true); }
     });
     function sourceReady(label) {
-      el.btnStart.disabled = false;
-      el.btnReground.disabled = false;
+      if (!state.recording && !state.scoring) el.btnRecord.disabled = false;
       el.badge.textContent = label;
-      setStatus('Source ready. Click “Start scoring”.');
+      setStatus('Source ready. Click Record, then Stop & score.');
     }
 
     // ---------------------------------------------------------- frame capture
@@ -364,20 +389,19 @@
     function grabFrame() {
       const v = el.video;
       if (!v.videoWidth) return null;
-      canvas.width = FRAME_W;
-      canvas.height = Math.round(FRAME_W * v.videoHeight / v.videoWidth);
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/jpeg', 0.7);
+      const url = canvas.toDataURL('image/jpeg', 0.75);
       return { t: (performance.now() - state.t0) / 1000, b64: url.split(',')[1], thumb: url };
     }
     function captureTick() {
-      if (!state.running || el.video.paused) return;
+      if (!state.recording || el.video.paused) return;
       const f = grabFrame();
       if (f) state.frames.push(f);
-      // never let an unprocessed backlog grow without bound
-      if (state.frames.length > 60) state.frames.splice(0, state.frames.length - 60);
-      el.badge.textContent = `t = ${f ? f.t.toFixed(0) : '–'} s · ${state.frames.length} queued`;
+      el.badge.textContent = `REC t = ${f ? f.t.toFixed(0) : '–'} s · ${state.frames.length} frames`;
+      if (state.frames.length >= MAX_FRAMES) stopAndScore();
     }
 
     // -------------------------------------------------------------- VLM calls
@@ -390,7 +414,6 @@
     }
 
     const EFFORT = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high' };
-    const CLAUDE_BUDGET = { LOW: 1024, MEDIUM: 4096, HIGH: 12000 };
     const JSON_SUFFIX = '\n\nRespond with valid JSON only (a top-level array), with no markdown fences.';
 
     async function postJSON(url, headers, body, label) {
@@ -400,69 +423,25 @@
     }
 
     async function callVLM(prompt, frames) {
-      const key = el.key.value.trim();
-      if (!key) throw new Error('API key missing');
-      const model = el.model.value.trim();
+      if (!API_KEY) throw new Error('API key missing');
+      const model = el.model.value.trim().replace(/^openrouter\//, '');
       if (!model) throw new Error('Model id missing');
-      const provider = el.provider.value;
-      const effort = el.thinking.value;           // '' = provider default (nothing sent)
-      frames = frames || [];
+      const effort = el.thinking.value || 'MEDIUM';
 
-      if (provider === 'gemini') {
-        const parts = [{ text: prompt }];
-        frames.forEach((f) => parts.push({ inline_data: { mime_type: 'image/jpeg', data: f.b64 } }));
-        const generationConfig = { responseMimeType: 'application/json' };
-        if (effort) generationConfig.thinkingConfig = { thinkingLevel: EFFORT[effort] };
-        const j = await postJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-          { 'x-goog-api-key': key }, { contents: [{ parts }], generationConfig }, 'Gemini');
-        const ps = (((j.candidates || [])[0] || {}).content || {}).parts;
-        if (!ps) throw new Error('Gemini returned no content');
-        return parseJSON(ps.filter((p) => !p.thought).map((p) => p.text || '').join(''));
-      }
-
-      if (provider === 'claude') {
-        const content = frames.map((f) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f.b64 } }));
-        content.push({ type: 'text', text: prompt });
-        const body = { model, max_tokens: 4096, messages: [{ role: 'user', content }] };
-        if (effort) { body.thinking = { type: 'enabled', budget_tokens: CLAUDE_BUDGET[effort] }; body.max_tokens = CLAUDE_BUDGET[effort] + 4096; }
-        const j = await postJSON('https://api.anthropic.com/v1/messages',
-          { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body, 'Claude');
-        return parseJSON((j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
-      }
-
-      if (provider === 'openai' || provider === 'openrouter') {
-        const content = [{ type: 'text', text: provider === 'openrouter' ? prompt + JSON_SUFFIX : prompt }];
-        frames.forEach((f) => content.push({ type: 'image_url', image_url: { url: f.thumb, detail: 'low' } }));
-        const body = { model: provider === 'openrouter' ? model.replace(/^openrouter\//, '') : model, messages: [{ role: 'user', content }] };
-        if (provider === 'openai') {
-          body.response_format = { type: 'json_object' };
-          if (effort) body.reasoning_effort = EFFORT[effort];
-        } else if (effort) {
-          body.reasoning = { effort: EFFORT[effort] };
-        }
-        const url = provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://openrouter.ai/api/v1/chat/completions';
-        const j = await postJSON(url, { Authorization: 'Bearer ' + key }, body, provider === 'openai' ? 'OpenAI' : 'OpenRouter');
-        const msg = (((j.choices || [])[0] || {}).message || {}).content;
-        if (!msg) throw new Error('no content returned');
-        return parseJSON(msg);
-      }
-
-      // muse: Responses-style API
-      const content = [{ type: 'input_text', text: prompt + '\n\nRespond with valid JSON only.' }];
-      frames.forEach((f) => content.push({ type: 'input_image', image_url: f.thumb }));
-      const j = await postJSON('https://api.meta.ai/v1/responses', { Authorization: 'Bearer ' + key },
-        { model, input: [{ role: 'user', content }], stream: false }, 'Muse');
-      let text = j.output_text;
-      if (!text) for (const item of (j.output || [])) for (const part of (item.content || [])) if (!text && part.text) text = part.text;
-      if (!text && j.choices) text = (j.choices[0].message || {}).content;
-      if (!text) throw new Error('Muse returned no text');
-      return parseJSON(text);
+      // same layout as dna/requests/_media.build_openai_content: images, then the text
+      const content = (frames || []).map((f) => ({ type: 'image_url', image_url: { url: f.thumb, detail: 'low' } }));
+      content.push({ type: 'text', text: prompt + JSON_SUFFIX });
+      const body = { model, messages: [{ role: 'user', content }] };
+      body.reasoning = { effort: EFFORT[effort] };
+      const j = await postJSON('https://openrouter.ai/api/v1/chat/completions', { Authorization: 'Bearer ' + API_KEY }, body, 'OpenRouter');
+      const msg = (((j.choices || [])[0] || {}).message || {}).content;
+      if (!msg) throw new Error('no content returned');
+      return parseJSON(msg);
     }
 
-    // ------------------------------------------------- D&A prompts (stages 1-3)
-    // Adapted from dna/functions/description.py and progress.py. Differences for
-    // streaming: frames arrive in batches, so the describer gets the previous
-    // description for continuity, and the assessor is told the last entry is "now".
+    // ------------------------------------------------------ prompts (from the dna repo)
+    // dna/functions/description.py (grounding + description), progress.py
+    // (get_progress_from_description_failure = dna_feedback; get_progress_from_video_naive = naive).
     function promptGround(task) {
       return `<role>
 You are an expert in object recognition.
@@ -474,51 +453,49 @@ You are an expert in object recognition.
 </task>
 
 <output_format>
-Each single object should have a unique identifier. Respond with a list of objects in the following JSON format:
+Each single object should have a unique idenitifer. Each single object should have a unique idenitifer. Respond with a list of objects in the following JSON format:
 [
     {
         "all_objects": [str, str, ...],
-        "task_objects": [str, str, ...]
+        "task_objects": [str, str, ...],
     }
 ]
 </output_format>`;
     }
 
-    function promptDescribe(objects, n, prevDesc, times) {
+    function promptDescribe(objects, n) {
       return `<role>
 You are an expert in scene understanding. Provide highly detailed descriptions including the robot and state of the following objects ${JSON.stringify(objects)} at each timestep. Describe robot motion and distance between robot and objects.
+Without looking at the rest of the video, describe the scene in the first and last frame to ground the descriptions.
 </role>
 
 <constraints>
-- The images are consecutive frames from a live camera, in time order. They may come from a third-person or wrist-mounted (robot POV) camera.
+- The video may be captured from either a third-person or wrist-mounted (robot POV) camera.
 - Do not make any judgement about what the robot is trying to accomplish. The robot is imperfect and might do things that don't make any sense to you.
 - Describe the scene as objectively as possible.
-${prevDesc ? `- For continuity only, the description of the frame just before these was: "${prevDesc}". Describe what you see in each new frame; do not copy this.` : ''}
 </constraints>
 
-Frame timestamps (seconds): ${JSON.stringify(times.map((t) => +t.toFixed(1)))}
-
 <output_format>
-Respond with exactly ${n} descriptions, one string per image, in the following JSON format:
+Respond with exactly ${n} descriptions, where ${n} is the number of video frames. There is only one string per frame. in the following JSON format:
 [
     {
-        "descriptions": [str, str, ...]
+        "description_first_frame": str,
+        "description_last_frame": str,
+        "descriptions": [str, str, ...],
     }
 ]
 </output_format>`;
     }
 
-    function promptAssess(task, items) {
-      const dict = {}; items.forEach((it, i) => { dict[i] = it.desc; });
-      const times = items.map((it) => +it.t.toFixed(1));
+    // dna_feedback: assess from the descriptions only (text, no images)
+    function promptAssess(task, descs) {
+      const dict = {}; descs.forEach((d, i) => { dict[i] = d; });
       return `
 Task:
 "${task}"
 
-Scene descriptions (live stream, index 0 is the oldest kept frame and the last index is the current state):
+Scene descriptions:
 ${JSON.stringify(dict)}
-
-Frame timestamps in seconds: ${JSON.stringify(times)}
 
 1. The task text fixes which objects count (category, color, shape, and wording). Scene descriptions are the only evidence of what is in the environment. Do not "ground" the task by renaming scene objects to match the task.
 2. For each object the task requires, it may be tied only to scene mentions that refer to that same entity without contradiction. Do not substitute a different object because it could serve the same role. If attributes in the scene conflict with the task's description of that object, or no clear referent exists, treat that requirement as absent.
@@ -526,10 +503,10 @@ Frame timestamps in seconds: ${JSON.stringify(times)}
 4. If ALL required objects are absent by these rules, the task cannot be completed in this scene: use all 0% progress and explain in "completion state". Otherwise define precisely what the environment would look like if the task were FULLY and COMPLETELY finished (not started, not halfway—entirely done). Reward partial progress if the task is only partially completed and some required objects are present.
 5. For each timestep, reason about the % progress towards that fully completed state.
 6. Progress is defined as % progress towards the fully completed state. Progress does not have to be monotonic, i.e., the robot can reverse progress.
-7. If the task is not yet fully completed, describe what is going wrong or missing at the CURRENT (last) timestep.
-8. If the task is not yet fully completed, give short, actionable feedback on what the robot should do differently RIGHT NOW. This is read live, so keep it to one or two sentences.
+7. If the task was not fully completed, describe the failure.
+8. If the task was not fully completed, give feedback on what the robot should have done differently.
 
-Respond with exactly ${items.length} progress values (ordered by frame) in the following JSON format:
+Respond with a list of progress values (ordered by frame) in the following JSON format:
 [
     {
         "failure": str,
@@ -542,79 +519,106 @@ Respond with exactly ${items.length} progress values (ordered by frame) in the f
 Before you respond, reflect whether the task is actually fully completed, otherwise adjust the progress values!`;
     }
 
-    // --------------------------------------------------------- pipeline cycle
+    // naive: frames -> progress directly, one call, no description, no feedback
+    function promptNaive(task) {
+      return `
+Task:
+"${task}"
+
+1. The task text fixes which objects count (category, color, shape, and wording). The video frames are the only evidence of what is in the environment. Do not "ground" the task by renaming visible objects to match the task.
+2. For each object the task requires, it may be tied only to objects visible in the video that refer to that same entity without contradiction. Do not substitute a different object because it could serve the same role. If the visual appearance of an object conflicts with the task's description of that object, or no clear referent is visible, treat that requirement as absent.
+3. You may track the same physical object across frames only when it is plainly the same entity already visible in the video—not to map task nouns onto other objects.
+4. For each timestep, reason about the % progress towards that fully completed state (0-100%).
+
+Respond with a list of progress values (ordered by frame) in the following JSON format:
+[
+    {
+        "progress": [int, int, ...]
+    }
+]`;
+    }
+
+    // --------------------------------------------------------------- pipeline
     function pickEven(arr, k) {
       if (arr.length <= k) return arr.slice();
       const out = [];
       for (let i = 0; i < k; i++) out.push(arr[Math.round(i * (arr.length - 1) / (k - 1))]);
       return out;
     }
+    // dna/classes/main.py: a progress list whose length != frame count is an error and the sample is retried
+    function fit(arr, n) {
+      if (!Array.isArray(arr) || arr.length !== n) throw new Error(`progress length ${Array.isArray(arr) ? arr.length : 0} != frame count ${n}`);
+      return arr.map((x) => Math.max(0, Math.min(100, +x || 0)));
+    }
+    async function retry(fn, tries) {
+      let err;
+      for (let i = 0; i < tries; i++) { try { return await fn(); } catch (e) { err = e; console.warn('retry', e); } }
+      throw err;
+    }
 
-    async function cycle() {
-      if (state.busy || !state.running) return;
+    // Runs naive and dna_feedback on the same recorded frames, at the same time.
+    async function scoreAll() {
       const task = el.task.value.trim();
-      if (!task) { setStatus('Enter a task first.', true); return; }
-      if (state.frames.length < MIN_NEW) return;
-      state.busy = true;
-      const t0 = performance.now();
-      try {
-        // Stage 1: grounding (once per task, or on demand)
-        if (state.needGround || state.objectsTask !== task || !state.objects) {
-          setStatus('Grounding objects…');
-          const g = await callVLM(promptGround(task), pickEven(state.frames, GROUND_FRAMES));
-          state.objects = g.all_objects || [];
-          state.objectsTask = task;
-          state.needGround = false;
-          el.objects.textContent = 'objects: ' + state.objects.join(', ') +
-            (g.task_objects && g.task_objects.length ? '  ·  task-relevant: ' + g.task_objects.join(', ') : '');
-        }
+      if (!task) { setStatus('Enter a task first.', true); el.btnRecord.disabled = false; return; }
+      state.scoring = true;
+      el.btnRecord.disabled = true; el.btnStop.disabled = true;
+      const frames = pickEven(state.frames, parseInt(el.nframes.value, 10));
+      state.frames = [];
+      state.items = frames.map((f) => ({ t: f.t, thumb: f.thumb, desc: null, progress: null, naive: null }));
+      state.analysis = null; state.naiveAnalysis = null; state.selected = null;
+      el.fbLog.innerHTML = ''; el.objects.textContent = '';
+      const N = frames.length, t0 = performance.now();
+      let ds = 'grounding…', ns = 'scoring…';
+      const upd = () => setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}`);
+      upd(); render();
 
-        // Stage 2: describe a batch of the frames that arrived since last time
-        const pending = state.frames.splice(0, state.frames.length);
-        const batch = pickEven(pending, BATCH_MAX);
-        setStatus(`Describing ${batch.length} frames…`);
-        const prev = state.items.length ? state.items[state.items.length - 1].desc : null;
-        const d = await callVLM(promptDescribe(state.objects, batch.length, prev, batch.map((f) => f.t)), batch);
-        let descs = d.descriptions || (d.description ? [d.description] : []);
-        if (!Array.isArray(descs) || !descs.length) throw new Error('no descriptions returned');
-        descs = descs.slice(0, batch.length);
-        descs.forEach((desc, i) => state.items.push({ t: batch[i].t, desc: String(desc), thumb: batch[i].thumb, progress: null }));
-        if (state.items.length > MAX_WINDOW) state.items.splice(0, state.items.length - MAX_WINDOW);
+      const naiveRun = (async () => {
+        const prog = await retry(async () => fit((await callVLM(promptNaive(task), frames)).progress, N), 3);
+        prog.forEach((p, i) => { state.items[i].naive = p; });
+        state.naiveAnalysis = { failure: 'n/a (naive returns progress only)', feedback: 'n/a (naive returns progress only)' };
+        ns = `done (${((performance.now() - t0) / 1000).toFixed(0)}s)`;
+      })().catch((e) => { console.error('naive', e); ns = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
-        // Stage 3: assess — text only, over the whole rolling description history
-        setStatus('Assessing progress…');
-        const a = await callVLM(promptAssess(task, state.items), null);
-        let prog = Array.isArray(a.progress) ? a.progress.map((x) => Math.max(0, Math.min(100, +x || 0))) : [];
-        if (!prog.length) throw new Error('no progress returned');
-        // Tolerate off-by-few lengths: align to the newest entries.
-        if (prog.length > state.items.length) prog = prog.slice(prog.length - state.items.length);
-        const off = state.items.length - prog.length;
-        prog.forEach((p, i) => { state.items[off + i].progress = p; });
-        const lastKnown = (i) => { for (let j = i; j >= 0; j--) if (state.items[j].progress !== null) return state.items[j].progress; return 0; };
-        state.items.forEach((it, i) => { if (it.progress === null) it.progress = lastKnown(i - 1); });
-
+      let objects = null;   // grounding is cached per (task, video), so retries don't redo it
+      const dnaRun = (async () => {
+        const a = await retry(async () => {
+          if (!objects) {
+            const g = await callVLM(promptGround(task), frames);
+            objects = g.all_objects || [];
+            el.objects.textContent = 'objects: ' + objects.join(', ') +
+              (g.task_objects && g.task_objects.length ? '  ·  task-relevant: ' + g.task_objects.join(', ') : '');
+          }
+          ds = 'describing…'; upd();
+          const d = await callVLM(promptDescribe(objects, N), frames);
+          const descs = d.descriptions;
+          if (!Array.isArray(descs) || !descs.length) throw new Error('no descriptions returned');
+          descs.forEach((x, i) => { if (state.items[i]) state.items[i].desc = String(x); });
+          render();
+          ds = 'assessing…'; upd();
+          const r = await callVLM(promptAssess(task, descs), null);
+          r.progress = fit(r.progress, N);
+          return r;
+        }, 3);
+        a.progress.forEach((p, i) => { state.items[i].progress = p; });
         state.analysis = { failure: a.failure || '', feedback: a.feedback || '', completion: a['completion state'] || '' };
-        const lat = ((performance.now() - t0) / 1000).toFixed(1);
-        setStatus(`Updated in ${lat}s · ${state.frames.length} frames queued`);
+        ds = `done (${((performance.now() - t0) / 1000).toFixed(0)}s)`;
         pushFeedback();
-      } catch (e) {
-        console.error(e);
-        setStatus(e.message, true);
-        await new Promise((r) => setTimeout(r, 2500));
-      } finally {
-        state.busy = false;
-        render();
-      }
+      })().catch((e) => { console.error('dna', e); ds = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
+
+      await Promise.all([naiveRun, dnaRun]);
+      const bad = /failed/.test(ds + ns);
+      setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}` + (bad ? ' — Record again to retry.' : ' — click the chart to inspect any moment.'), bad);
+      state.scoring = false;
+      el.badge.textContent = 'scored';
+      el.btnRecord.disabled = !state.stream && !el.video.src;
     }
 
     function pushFeedback() {
       const last = state.items[state.items.length - 1];
       const fb = state.analysis && state.analysis.feedback;
       if (!fb || last.progress >= 100) return;
-      if (fb === state.lastSpoken) return;
-      state.lastSpoken = fb;
       const row = document.createElement('div');
-      row.innerHTML = `<span class="t">${last.t.toFixed(0)}s · ${last.progress}%</span>`;
+      row.innerHTML = `<span class="t">D&amp;A · ${last.t.toFixed(0)}s · ${last.progress}%</span>`;
       row.appendChild(document.createTextNode(fb));
       el.fbLog.prepend(row);
       if (el.speak.checked && 'speechSynthesis' in window) {
@@ -643,18 +647,24 @@ Before you respond, reflect whether the task is actually fully completed, otherw
       });
       const items = state.items;
       if (!items.length) return;
-      domain = [items[0].t, Math.max(items[items.length - 1].t, items[0].t + 10)];
+      domain = [0, Math.max(items[items.length - 1].t, 1)];   // x runs from 0 to the latest timestamp
       [0, 0.25, 0.5, 0.75, 1].forEach((f) => {
         const tv = domain[0] + f * (domain[1] - domain[0]);
         const t = svg('text', { x: xFor(tv), y: CHART_H - 5, 'text-anchor': f === 0 ? 'start' : f === 1 ? 'end' : 'middle', class: 'axis-text' });
         t.textContent = tv.toFixed(0) + 's'; s.appendChild(t);
       });
-      s.appendChild(svg('polyline', { points: items.map((it) => `${xFor(it.t)},${yFor(it.progress / 100)}`).join(' '), class: 'dna-line' }));
-      items.forEach((it) => s.appendChild(svg('circle', { cx: xFor(it.t), cy: yFor(it.progress / 100), r: 5, class: 'dna-dot' })));
+      const naivePts = items.filter((it) => it.naive !== null && it.naive !== undefined);
+      if (naivePts.length) {
+        s.appendChild(svg('polyline', { points: naivePts.map((it) => `${xFor(it.t)},${yFor(it.naive / 100)}`).join(' '), class: 'dna-line naive' }));
+        naivePts.forEach((it) => s.appendChild(svg('circle', { cx: xFor(it.t), cy: yFor(it.naive / 100), r: 4, class: 'naive-dot' })));
+      }
+      const dnaPts = items.filter((it) => it.progress !== null);
+      if (dnaPts.length) s.appendChild(svg('polyline', { points: dnaPts.map((it) => `${xFor(it.t)},${yFor(it.progress / 100)}`).join(' '), class: 'dna-line' }));
+      dnaPts.forEach((it) => s.appendChild(svg('circle', { cx: xFor(it.t), cy: yFor(it.progress / 100), r: 5, class: 'dna-dot' })));
       const si = state.selected === null ? items.length - 1 : state.selected;
       const sel = items[Math.min(si, items.length - 1)];
       s.appendChild(svg('line', { x1: xFor(sel.t), x2: xFor(sel.t), y1: PAD_T, y2: CHART_H - PAD_B, class: 'sel-line' }));
-      s.appendChild(svg('circle', { cx: xFor(sel.t), cy: yFor(sel.progress / 100), r: 5, class: 'sel-dot' }));
+      if (sel.progress !== null) s.appendChild(svg('circle', { cx: xFor(sel.t), cy: yFor(sel.progress / 100), r: 5, class: 'sel-dot' }));
     }
 
     function render() {
@@ -664,18 +674,25 @@ Before you respond, reflect whether the task is actually fully completed, otherw
       const live = state.selected === null;
       const idx = live ? items.length - 1 : Math.min(state.selected, items.length - 1);
       const it = items[idx];
-      const latest = items[items.length - 1];
-      el.big.textContent = latest.progress + '%';
-      el.bigSub.textContent = live ? 'now' : `inspecting t = ${it.t.toFixed(0)} s (${it.progress}%)`;
-      el.bar.style.width = latest.progress + '%';
-      el.desc.textContent = it.desc;
+      const scored = items.filter((x) => x.progress !== null);
+      const latest = scored.length ? scored[scored.length - 1] : null;
+      el.big.textContent = latest ? latest.progress + '%' : '–';
+      el.bigSub.textContent = live ? (latest ? 'final' : '') : `inspecting t = ${it.t.toFixed(0)} s` + (it.progress !== null ? ` (${it.progress}%)` : '');
+      el.bar.style.width = (latest ? latest.progress : 0) + '%';
+      el.desc.textContent = it.desc || 'Waiting for description…';
       el.descTime.textContent = `— t = ${it.t.toFixed(1)} s`;
       el.thumb.src = it.thumb; el.thumb.style.display = 'block';
       if (state.analysis) {
-        const done = latest.progress >= 100;
+        const done = latest && latest.progress >= 100;
         el.failure.textContent = done ? 'none — task complete' : (state.analysis.failure || '–');
         el.feedback.textContent = done ? '–' : (state.analysis.feedback || '–');
         el.completion.textContent = state.analysis.completion || '–';
+      }
+      const nScored = items.filter((x) => x.naive !== null);
+      el.naiveProgress.textContent = nScored.length ? nScored[nScored.length - 1].naive + '%' : '–';
+      if (state.naiveAnalysis) {
+        el.naiveFailure.textContent = state.naiveAnalysis.failure;
+        el.naiveFeedback.textContent = state.naiveAnalysis.feedback;
       }
     }
 
@@ -695,34 +712,40 @@ Before you respond, reflect whether the task is actually fully completed, otherw
     el.chart.addEventListener('pointercancel', release);
 
     // --------------------------------------------------------------- controls
-    function start() {
-      if (el.remember.checked) store('dnalive.key.' + el.provider.value, el.key.value.trim());
-      else store('dnalive.key.' + el.provider.value, null);
-      store('dnalive.model', el.model.value);
-      state.running = true;
-      if (!state.t0) state.t0 = performance.now();
+    function record() {
+      if (state.recording || state.scoring) return;
+      // each recording is scored as one whole video, so start from a clean slate
+      el.btnReset.click();
+      state.t0 = performance.now();
+      state.recording = true;
       el.dot.classList.add('is-live');
-      el.btnStart.innerHTML = '<span class="icon is-small"><i class="fas fa-pause"></i></span><span>Pause</span>';
+      el.btnRecord.disabled = true; el.btnStop.disabled = false;
       clearInterval(state.captureTimer);
-      state.captureTimer = setInterval(() => { captureTick(); cycle(); }, parseInt(el.interval.value, 10));
-      setStatus('Scoring…');
+      state.captureTimer = setInterval(captureTick, parseInt(el.interval.value, 10));
+      captureTick();
+      setStatus('Recording… click “Stop & score” when the robot is done.');
     }
-    function pause() {
-      state.running = false;
+    function stopAndScore() {
+      if (!state.recording) return;
+      state.recording = false;
       clearInterval(state.captureTimer);
       el.dot.classList.remove('is-live');
-      el.btnStart.innerHTML = '<span class="icon is-small"><i class="fas fa-play"></i></span><span>Start scoring</span>';
-      setStatus('Paused.');
+      if (!state.frames.length) { el.btnRecord.disabled = false; el.btnStop.disabled = true; setStatus('No frames were captured.', true); return; }
+      scoreAll();
     }
-    el.btnStart.addEventListener('click', () => (state.running ? pause() : start()));
-    el.interval.addEventListener('change', () => { if (state.running) { pause(); start(); } });
-    el.btnReground.addEventListener('click', () => { state.needGround = true; setStatus('Will re-ground on the next cycle.'); });
+    el.btnRecord.addEventListener('click', record);
+    el.btnStop.addEventListener('click', stopAndScore);
+    el.interval.addEventListener('change', () => {
+      if (state.recording) { clearInterval(state.captureTimer); state.captureTimer = setInterval(captureTick, parseInt(el.interval.value, 10)); }
+    });
     el.btnReset.addEventListener('click', () => {
-      state.frames = []; state.items = []; state.analysis = null; state.selected = null;
+      if (state.recording || state.scoring) return;
+      state.frames = []; state.items = []; state.analysis = null; state.naiveAnalysis = null; state.lastNaive = ''; state.selected = null;
       state.needGround = true; state.t0 = performance.now(); state.lastSpoken = '';
       el.fbLog.innerHTML = ''; el.objects.textContent = ''; el.desc.textContent = 'Waiting for frames…';
       el.thumb.style.display = 'none'; el.big.textContent = '–'; el.bigSub.textContent = ''; el.bar.style.width = '0';
       el.failure.textContent = el.feedback.textContent = el.completion.textContent = '–';
+      el.naiveFailure.textContent = el.naiveFeedback.textContent = el.naiveProgress.textContent = '–';
       drawChart();
       setStatus('History cleared.');
     });
