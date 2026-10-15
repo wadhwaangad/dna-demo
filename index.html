@@ -410,7 +410,24 @@
       const a = s.search(/[\[{]/);
       if (a > 0) s = s.slice(a);
       const v = JSON.parse(s);
-      return Array.isArray(v) ? v[0] : v;   // prompts ask for [ {...} ]
+      // prompts ask for [ {...} ], but models sometimes answer with a bare list of
+      // numbers or one object per frame; keep the whole reply so callers can recover
+      const out = Array.isArray(v) ? (v[0] && typeof v[0] === 'object' && !Array.isArray(v[0]) ? Object.assign({}, v[0]) : {}) : Object.assign({}, v);
+      Object.defineProperty(out, '_all', { value: v });
+      Object.defineProperty(out, '_raw', { value: text });
+      return out;
+    }
+
+    // the progress list from a reply, tolerating the shapes models actually return
+    function progressOf(r) {
+      if (Array.isArray(r.progress)) return r.progress;
+      const v = r._all;
+      if (Array.isArray(v)) {
+        if (v.every((x) => typeof x === 'number' || typeof x === 'string')) return v;                       // [10, 20, ...]
+        if (v.length && v.every((x) => x && typeof x.progress === 'number')) return v.map((x) => x.progress); // [{progress: 10}, ...]
+      }
+      const key = Object.keys(r).find((k) => /progress/i.test(k) && Array.isArray(r[k]));               // e.g. "progress values"
+      return key ? r[key] : null;
     }
 
     const EFFORT = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high' };
@@ -546,8 +563,10 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
       return out;
     }
     // dna/classes/main.py: a progress list whose length != frame count is an error and the sample is retried
-    function fit(arr, n) {
-      if (!Array.isArray(arr) || arr.length !== n) throw new Error(`progress length ${Array.isArray(arr) ? arr.length : 0} != frame count ${n}`);
+    function fit(r, n) {
+      const arr = progressOf(r);
+      if (!Array.isArray(arr)) throw new Error(`no progress list in reply: ${String(r._raw || '').slice(0, 160)}`);
+      if (arr.length !== n) throw new Error(`progress length ${arr.length} != frame count ${n}`);
       return arr.map((x) => Math.max(0, Math.min(100, +x || 0)));
     }
     async function retry(fn, tries) {
@@ -573,7 +592,7 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
       upd(); render();
 
       const naiveRun = (async () => {
-        const prog = await retry(async () => fit((await callVLM(promptNaive(task), frames)).progress, N), 3);
+        const prog = await retry(async () => fit(await callVLM(promptNaive(task), frames), N), 3);
         prog.forEach((p, i) => { state.items[i].naive = p; });
         state.naiveAnalysis = { failure: 'n/a (naive returns progress only)', feedback: 'n/a (naive returns progress only)' };
         ns = `done (${((performance.now() - t0) / 1000).toFixed(0)}s)`;
@@ -596,7 +615,7 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
           render();
           ds = 'assessing…'; upd();
           const r = await callVLM(promptAssess(task, descs), null);
-          r.progress = fit(r.progress, N);
+          r.progress = fit(r, N);
           return r;
         }, 3);
         a.progress.forEach((p, i) => { state.items[i].progress = p; });
