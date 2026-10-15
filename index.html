@@ -506,6 +506,7 @@ Respond with exactly ${n} descriptions, where ${n} is the number of video frames
 
     // dna_feedback: assess from the descriptions only (text, no images)
     function promptAssess(task, descs) {
+      const n = descs.length;
       const dict = {}; descs.forEach((d, i) => { dict[i] = d; });
       return `
 Task:
@@ -523,7 +524,7 @@ ${JSON.stringify(dict)}
 7. If the task was not fully completed, describe the failure.
 8. If the task was not fully completed, give feedback on what the robot should have done differently.
 
-Respond with a list of progress values (ordered by frame) in the following JSON format:
+Respond with a list of ${n} progress values (ordered by frame) in the following JSON format:
 [
     {
         "failure": str,
@@ -537,7 +538,9 @@ Before you respond, reflect whether the task is actually fully completed, otherw
     }
 
     // naive: frames -> progress directly, one call, no description, no feedback
-    function promptNaive(task) {
+    // Both prompts state the frame count, as the repo does for Qwen models (progress.py),
+    // because without it models often return fewer values than there are frames.
+    function promptNaive(task, n) {
       return `
 Task:
 "${task}"
@@ -547,7 +550,7 @@ Task:
 3. You may track the same physical object across frames only when it is plainly the same entity already visible in the video—not to map task nouns onto other objects.
 4. For each timestep, reason about the % progress towards that fully completed state (0-100%).
 
-Respond with a list of progress values (ordered by frame) in the following JSON format:
+Respond with a list of ${n} progress values (ordered by frame) in the following JSON format:
 [
     {
         "progress": [int, int, ...]
@@ -563,15 +566,25 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
       return out;
     }
     // dna/classes/main.py: a progress list whose length != frame count is an error and the sample is retried
-    function fit(r, n) {
+    function fit(r, n, lastTry) {
       const arr = progressOf(r);
       if (!Array.isArray(arr)) throw new Error(`no progress list in reply: ${String(r._raw || '').slice(0, 160)}`);
-      if (arr.length !== n) throw new Error(`progress length ${arr.length} != frame count ${n}`);
+      if (arr.length !== n) {
+        if (!lastTry) throw new Error(`progress length ${arr.length} != frame count ${n}`);
+        // every attempt miscounted: stretch the list over the frames rather than show nothing
+        console.warn(`resampling ${arr.length} progress values to ${n} frames`);
+        const a = arr.map((x) => +x || 0);
+        r.resampledFrom = a.length;
+        return Array.from({ length: n }, (_, i) => {
+          const x = n === 1 ? 0 : i * (a.length - 1) / (n - 1), lo = Math.floor(x), hi = Math.min(a.length - 1, lo + 1);
+          return Math.max(0, Math.min(100, Math.round(a[lo] + (a[hi] - a[lo]) * (x - lo))));
+        });
+      }
       return arr.map((x) => Math.max(0, Math.min(100, +x || 0)));
     }
     async function retry(fn, tries) {
       let err;
-      for (let i = 0; i < tries; i++) { try { return await fn(); } catch (e) { err = e; console.warn('retry', e); } }
+      for (let i = 0; i < tries; i++) { try { return await fn(i === tries - 1); } catch (e) { err = e; console.warn('retry', e); } }
       throw err;
     }
 
@@ -592,15 +605,22 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
       upd(); render();
 
       const naiveRun = (async () => {
-        const prog = await retry(async () => fit(await callVLM(promptNaive(task), frames), N), 3);
+        let note = '';
+        const prog = await retry(async (last) => {
+          const r = await callVLM(promptNaive(task, N), frames);
+          const p = fit(r, N, last);
+          if (r.resampledFrom) note = `, resampled from ${r.resampledFrom} values`;
+          return p;
+        }, 3);
         prog.forEach((p, i) => { state.items[i].naive = p; });
         state.naiveAnalysis = { failure: 'n/a (naive returns progress only)', feedback: 'n/a (naive returns progress only)' };
-        ns = `done (${((performance.now() - t0) / 1000).toFixed(0)}s)`;
+        ns = `done (${((performance.now() - t0) / 1000).toFixed(0)}s${note})`;
       })().catch((e) => { console.error('naive', e); ns = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
       let objects = null;   // grounding is cached per (task, video), so retries don't redo it
       const dnaRun = (async () => {
-        const a = await retry(async () => {
+        let note = '';
+        const a = await retry(async (last) => {
           if (!objects) {
             const g = await callVLM(promptGround(task), frames);
             objects = g.all_objects || [];
@@ -609,18 +629,25 @@ Respond with a list of progress values (ordered by frame) in the following JSON 
           }
           ds = 'describing…'; upd();
           const d = await callVLM(promptDescribe(objects, N), frames);
-          const descs = d.descriptions;
+          let descs = d.descriptions;
           if (!Array.isArray(descs) || !descs.length) throw new Error('no descriptions returned');
+          // one description per frame, so the assess step is asked for exactly N values too
+          if (descs.length !== N) {
+            if (!last) throw new Error(`description count ${descs.length} != frame count ${N}`);
+            descs = Array.from({ length: N }, (_, i) => descs[Math.min(descs.length - 1, Math.floor(i * descs.length / N))]);
+          }
           descs.forEach((x, i) => { if (state.items[i]) state.items[i].desc = String(x); });
           render();
           ds = 'assessing…'; upd();
           const r = await callVLM(promptAssess(task, descs), null);
-          r.progress = fit(r, N);
+          r.progress = fit(r, N, last);
+          if (r.resampledFrom) note = `, resampled from ${r.resampledFrom} values`;
+          if (d.descriptions.length !== N) note += `, ${d.descriptions.length} descriptions stretched to ${N}`;
           return r;
         }, 3);
         a.progress.forEach((p, i) => { state.items[i].progress = p; });
         state.analysis = { failure: a.failure || '', feedback: a.feedback || '', completion: a['completion state'] || '' };
-        ds = `done (${((performance.now() - t0) / 1000).toFixed(0)}s)`;
+        ds = `done (${((performance.now() - t0) / 1000).toFixed(0)}s${note})`;
         pushFeedback();
       })().catch((e) => { console.error('dna', e); ds = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
