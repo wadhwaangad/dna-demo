@@ -63,9 +63,18 @@
       color: #9a9a9a;
       margin-bottom: 0.6rem;
     }
-    #widget-root.columns:not(:last-child) { margin-bottom: 0.15rem; }
-    #widget-root > .column { padding-bottom: 0.375rem; }
-    #widget-root-bottom > .column { padding-top: 0.375rem; }
+    .row-gap.columns:not(:last-child) { margin-bottom: 0.15rem; }
+    .row-gap > .column { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+    .record-row { display: flex; gap: 1.5rem; align-items: center; }
+    .record-video { flex: 0 0 46%; }
+    .record-controls { flex: 1; text-align: center; }
+    .record-controls .transport { margin-top: 0.4rem; }
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 768px) {
+      .record-row { flex-direction: column; align-items: stretch; }
+      .record-video { flex: none; }
+      .details-grid { grid-template-columns: 1fr; }
+    }
 
     /* --- video --- */
     .video-frame-wrap {
@@ -236,28 +245,34 @@
         <label class="checkbox ml-3"><input type="checkbox" id="naive-on"> also run Naive baseline</label>
       </div>
 
-      <div class="columns mt-3" id="widget-root">
-        <!-- live video -->
-        <div class="column is-6">
+      <!-- row 1: live source + record controls -->
+      <div class="columns mt-3 row-gap" id="widget-root">
+        <div class="column is-12">
           <div class="panel-card">
-            <div class="panel-label">Stream</div>
-            <div class="video-frame-wrap">
-              <video id="video" muted playsinline></video>
-              <div class="step-badge"><span class="live-dot" id="live-dot"></span><span id="step-badge">no source</span></div>
+            <div class="record-row">
+              <div class="video-frame-wrap record-video">
+                <video id="video" muted playsinline></video>
+                <div class="step-badge"><span class="live-dot" id="live-dot"></span><span id="step-badge">no source</span></div>
+              </div>
+              <div class="record-controls">
+                <div class="panel-label">Stream &amp; recording</div>
+                <div class="transport">
+                  <button class="button is-danger" id="btn-record" disabled>
+                    <span class="icon is-small"><i class="fas fa-circle"></i></span><span>Record</span></button>
+                  <button class="button is-dark" id="btn-stop" disabled>
+                    <span class="icon is-small"><i class="fas fa-stop"></i></span><span>Stop &amp; score</span></button>
+                  <button class="button" id="btn-reset" title="clear history">
+                    <span class="icon is-small"><i class="fas fa-redo"></i></span><span>Reset</span></button>
+                </div>
+                <div class="status-line" id="status">1. Pick a source &rarr; 2. Record &rarr; 3. Stop &amp; score (scoring starts when you stop).</div>
+              </div>
             </div>
-            <div class="transport">
-              <button class="button is-small is-danger" id="btn-record" disabled>
-                <span class="icon is-small"><i class="fas fa-circle"></i></span><span>Record</span></button>
-              <button class="button is-small is-dark" id="btn-stop" disabled>
-                <span class="icon is-small"><i class="fas fa-stop"></i></span><span>Stop &amp; score</span></button>
-              <button class="button is-small" id="btn-reset" title="clear history">
-                <span class="icon is-small"><i class="fas fa-redo"></i></span><span>Reset</span></button>
-            </div>
-            <div class="status-line" id="status">1. Pick a source &rarr; 2. Record &rarr; 3. Stop &amp; score (scoring starts when you stop).</div>
           </div>
         </div>
+      </div>
 
-        <!-- replay of the recording -->
+      <!-- row 2: recorded video + progress chart -->
+      <div class="columns mt-0 row-gap">
         <div class="column is-6">
           <div class="panel-card">
             <div class="panel-label">Recording replay</div>
@@ -268,10 +283,7 @@
             <div class="status-line">Playing the replay moves the chart marker; clicking the chart seeks the replay.</div>
           </div>
         </div>
-      </div>
 
-      <div class="columns mt-0" id="widget-root-bottom">
-        <!-- progress -->
         <div class="column is-6">
           <div class="panel-card">
             <div class="panel-label">Progress &mdash; D&amp;A<span class="naive-only"> vs Naive</span></div>
@@ -282,22 +294,27 @@
             <div class="legend"><span class="key-swatch"></span>D&amp;A<span class="naive-only"><span class="key-swatch naive"></span>Naive (direct from frames)</span><br>Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
           </div>
         </div>
+      </div>
 
-        <!-- description + feedback -->
-        <div class="column is-6">
+      <!-- row 3: details -->
+      <div class="columns mt-0 row-gap" id="widget-root-bottom">
+        <div class="column is-12">
           <div class="panel-card">
-            <div class="panel-label">Grounded Description <span id="desc-time"></span></div>
-            <div class="desc-wrap">
-              <img class="desc-thumb" id="desc-thumb" alt="">
-              <div class="description-text" id="description-text">Waiting for frames&hellip;</div>
-            </div>
-            <div class="objects-line" id="objects-line"></div>
-
-            <div class="outcome-box">
-              <div class="panel-label" style="margin-bottom:0.7rem;">Failure &amp; Feedback &mdash; D&amp;A</div>
-              <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
-              <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
-              <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
+            <div class="details-grid">
+              <div>
+                <div class="panel-label">Grounded Description <span id="desc-time"></span></div>
+                <div class="desc-wrap">
+                  <img class="desc-thumb" id="desc-thumb" alt="">
+                  <div class="description-text" id="description-text">Waiting for frames&hellip;</div>
+                </div>
+                <div class="objects-line" id="objects-line"></div>
+              </div>
+              <div>
+                <div class="panel-label" style="margin-bottom:0.7rem;">Failure &amp; Feedback &mdash; D&amp;A</div>
+                <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
+                <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
+                <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
+              </div>
             </div>
 
             <div class="outcome-box">
