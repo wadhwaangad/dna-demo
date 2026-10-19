@@ -102,6 +102,7 @@
       font-family: 'Google Sans', sans-serif;
       font-size: 2.1rem; font-weight: 700; line-height: 1; color: var(--accent);
     }
+    .big-progress .naive-num { color: #1e88e5; margin-left: 1.2rem; }
     .big-progress small { font-size: 0.8rem; color: #898781; font-weight: 400; margin-left: 0.4rem; }
     .progress-bar-track { height: 8px; background: #eee; border-radius: 999px; margin: 0.5rem 0 0.7rem; overflow: hidden; }
     .progress-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.4s ease; }
@@ -244,8 +245,8 @@
         <!-- progress -->
         <div class="column is-6">
           <div class="panel-card">
-            <div class="panel-label">Progress &mdash; D&amp;A (live)</div>
-            <div class="big-progress"><span id="big-progress">&ndash;</span><small id="big-sub"></small></div>
+            <div class="panel-label">Progress &mdash; D&amp;A vs Naive</div>
+            <div class="big-progress"><span id="big-progress">&ndash;</span><small>D&amp;A</small><span id="big-naive" class="naive-num">&ndash;</span><small>Naive</small><small id="big-sub"></small></div>
             <div class="progress-bar-track"><div class="progress-bar-fill" id="bar"></div></div>
             <svg class="chart-svg" id="chart" viewBox="0 0 520 240" ></svg>
             <div class="legend"><span class="key-swatch"></span>D&amp;A<span class="key-swatch naive"></span>Naive (direct from frames)<br>Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
@@ -274,8 +275,6 @@
                 </div>
                 <div>
                   <div class="col-title" style="color:#1e88e5">Naive</div>
-                  <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="naive-failure">&ndash;</span></div>
-                  <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="naive-feedback">&ndash;</span></div>
                   <div class="outcome-row"><span class="tag is-info is-light">progress</span><span id="naive-progress">&ndash;</span></div>
                 </div>
               </div>
@@ -297,14 +296,14 @@
   (function () {
     // ---------------------------------------------------------------- config
     const MAX_FRAMES = 300;       // recording auto-stops at this many frames
-    // frames are sent at the source's native resolution, as in the dna repo
+    const FRAME_W = 640, FRAME_H = 480;   // frames are downsampled to fit 640x480 before being sent
     const CHART_W = 520, CHART_H = 240, PAD_L = 30, PAD_R = 16, PAD_T = 14, PAD_B = 20;
 
     const $ = (id) => document.getElementById(id);
     const el = {
       task: $('task'), model: $('model'),
       interval: $('interval'), thinking: $('thinking'), nframes: $('nframes'), speak: $('speak'),
-      naiveFailure: $('naive-failure'), naiveFeedback: $('naive-feedback'), naiveProgress: $('naive-progress'),
+      naiveProgress: $('naive-progress'), bigNaive: $('big-naive'),
       video: $('video'), badge: $('step-badge'), dot: $('live-dot'), status: $('status'),
       btnCam: $('btn-cam'), btnScreen: $('btn-screen'), fileIn: $('file-in'),
       btnRecord: $('btn-record'), btnStop: $('btn-stop'), btnReset: $('btn-reset'),
@@ -321,7 +320,6 @@
       items: [],             // described: {t, desc, thumb, progress, naive}
       objects: null, objectsTask: null, needGround: true,
       analysis: null,        // latest {failure, feedback, completion}
-      naiveAnalysis: null,   // latest {failure, feedback}
       selected: null,        // index inspected on chart, null = live edge
       captureTimer: null, lastSpoken: '',
     };
@@ -389,8 +387,9 @@
     function grabFrame() {
       const v = el.video;
       if (!v.videoWidth) return null;
-      canvas.width = v.videoWidth;
-      canvas.height = v.videoHeight;
+      const scale = Math.min(1, FRAME_W / v.videoWidth, FRAME_H / v.videoHeight);
+      canvas.width = Math.round(v.videoWidth * scale);
+      canvas.height = Math.round(v.videoHeight * scale);
       const ctx = canvas.getContext('2d');
       ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
       const url = canvas.toDataURL('image/jpeg', 0.75);
@@ -597,13 +596,15 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       const frames = pickEven(state.frames, parseInt(el.nframes.value, 10));
       state.frames = [];
       state.items = frames.map((f) => ({ t: f.t, thumb: f.thumb, desc: null, progress: null, naive: null }));
-      state.analysis = null; state.naiveAnalysis = null; state.selected = null;
+      state.analysis = null; state.selected = null;
       el.fbLog.innerHTML = ''; el.objects.textContent = '';
       const N = frames.length, t0 = performance.now();
       let ds = 'grounding…', ns = 'scoring…';
       const upd = () => setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}`);
       upd(); render();
 
+      // scores are held here and revealed together once both runs have finished
+      let naiveProg = null, dnaResult = null;
       const naiveRun = (async () => {
         let note = '';
         const prog = await retry(async (last) => {
@@ -612,8 +613,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
           if (r.resampledFrom) note = `, resampled from ${r.resampledFrom} values`;
           return p;
         }, 3);
-        prog.forEach((p, i) => { state.items[i].naive = p; });
-        state.naiveAnalysis = { failure: 'n/a (naive returns progress only)', feedback: 'n/a (naive returns progress only)' };
+        naiveProg = prog;
         ns = `done (${((performance.now() - t0) / 1000).toFixed(0)}s${note})`;
       })().catch((e) => { console.error('naive', e); ns = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
@@ -645,13 +645,18 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
           if (d.descriptions.length !== N) note += `, ${d.descriptions.length} descriptions stretched to ${N}`;
           return r;
         }, 3);
-        a.progress.forEach((p, i) => { state.items[i].progress = p; });
-        state.analysis = { failure: a.failure || '', feedback: a.feedback || '', completion: a['completion state'] || '' };
+        dnaResult = a;
         ds = `done (${((performance.now() - t0) / 1000).toFixed(0)}s${note})`;
-        pushFeedback();
       })().catch((e) => { console.error('dna', e); ds = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
       await Promise.all([naiveRun, dnaRun]);
+      if (naiveProg) naiveProg.forEach((p, i) => { state.items[i].naive = p; });
+      if (dnaResult) {
+        dnaResult.progress.forEach((p, i) => { state.items[i].progress = p; });
+        state.analysis = { failure: dnaResult.failure || '', feedback: dnaResult.feedback || '', completion: dnaResult['completion state'] || '' };
+        pushFeedback();
+      }
+      render();
       const bad = /failed/.test(ds + ns);
       setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}` + (bad ? ' — Record again to retry.' : ' — click the chart to inspect any moment.'), bad);
       state.scoring = false;
@@ -723,7 +728,11 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       const scored = items.filter((x) => x.progress !== null);
       const latest = scored.length ? scored[scored.length - 1] : null;
       el.big.textContent = latest ? latest.progress + '%' : '–';
-      el.bigSub.textContent = live ? (latest ? 'final' : '') : `inspecting t = ${it.t.toFixed(0)} s` + (it.progress !== null ? ` (${it.progress}%)` : '');
+      const nScored = items.filter((x) => x.naive !== null);
+      const nLatest = nScored.length ? nScored[nScored.length - 1] : null;
+      el.bigNaive.textContent = nLatest ? nLatest.naive + '%' : '–';
+      el.bigSub.textContent = live ? (latest || nLatest ? 'final' : '') : `inspecting t = ${it.t.toFixed(0)} s` +
+        (it.progress !== null ? ` · D&A ${it.progress}%` : '') + (it.naive !== null ? ` · Naive ${it.naive}%` : '');
       el.bar.style.width = (latest ? latest.progress : 0) + '%';
       el.desc.textContent = it.desc || 'Waiting for description…';
       el.descTime.textContent = `— t = ${it.t.toFixed(1)} s`;
@@ -734,12 +743,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
         el.feedback.textContent = done ? '–' : (state.analysis.feedback || '–');
         el.completion.textContent = state.analysis.completion || '–';
       }
-      const nScored = items.filter((x) => x.naive !== null);
-      el.naiveProgress.textContent = nScored.length ? nScored[nScored.length - 1].naive + '%' : '–';
-      if (state.naiveAnalysis) {
-        el.naiveFailure.textContent = state.naiveAnalysis.failure;
-        el.naiveFeedback.textContent = state.naiveAnalysis.feedback;
-      }
+      el.naiveProgress.textContent = nLatest ? nLatest.naive + '%' : '–';
     }
 
     function idxFromClientX(x) {
@@ -786,12 +790,12 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
     });
     el.btnReset.addEventListener('click', () => {
       if (state.recording || state.scoring) return;
-      state.frames = []; state.items = []; state.analysis = null; state.naiveAnalysis = null; state.lastNaive = ''; state.selected = null;
+      state.frames = []; state.items = []; state.analysis = null; state.lastNaive = ''; state.selected = null;
       state.needGround = true; state.t0 = performance.now(); state.lastSpoken = '';
       el.fbLog.innerHTML = ''; el.objects.textContent = ''; el.desc.textContent = 'Waiting for frames…';
       el.thumb.style.display = 'none'; el.big.textContent = '–'; el.bigSub.textContent = ''; el.bar.style.width = '0';
       el.failure.textContent = el.feedback.textContent = el.completion.textContent = '–';
-      el.naiveFailure.textContent = el.naiveFeedback.textContent = el.naiveProgress.textContent = '–';
+      el.naiveProgress.textContent = el.bigNaive.textContent = '–';
       drawChart();
       setStatus('History cleared.');
     });
