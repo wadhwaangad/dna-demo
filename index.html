@@ -102,6 +102,7 @@
       font-family: 'Google Sans', sans-serif;
       font-size: 2.1rem; font-weight: 700; line-height: 1; color: var(--accent);
     }
+    .compute-time { font-size: 0.8rem; color: #898781; margin-top: 0.3rem; }
     .big-progress .naive-num { color: #1e88e5; margin-left: 1.2rem; }
     .big-progress small { font-size: 0.8rem; color: #898781; font-weight: 400; margin-left: 0.4rem; }
     .progress-bar-track { height: 8px; background: #eee; border-radius: 999px; margin: 0.5rem 0 0.7rem; overflow: hidden; }
@@ -117,7 +118,7 @@
 
     /* --- description / feedback --- */
     .desc-wrap { display: flex; gap: 1rem; align-items: flex-start; }
-    .desc-thumb { width: 150px; border-radius: 6px; flex: none; background: #111; display: none; }
+    .desc-thumb { width: 120px; border-radius: 6px; flex: none; background: #111; display: none; }
     .description-text { font-size: 1.05rem; line-height: 1.5; color: #1a1a1a; min-height: 4.5rem; flex: 1; }
     .outcome-box { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #e2e2e2; }
     .outcome-row { font-size: 0.9rem; margin-bottom: 0.5rem; line-height: 1.4; }
@@ -139,9 +140,12 @@
     .naive-dot { fill: #1e88e5; opacity: 0.65; }
     .key-swatch { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--accent); vertical-align: middle; margin: 0 0.3rem 0 0.8rem; }
     .key-swatch.naive { border-top: 3px dashed #1e88e5; }
-    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 700px) { .compare-grid { grid-template-columns: 1fr; } }
-    .compare-grid .col-title { font-family: 'Google Sans', sans-serif; font-weight: 700; margin-bottom: 0.5rem; }
+    #app.no-naive .naive-only { display: none; }
+    .video-frame-wrap #replay { object-fit: contain; }
+    .replay-empty {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #888; font-size: 0.85rem; text-align: center; padding: 1rem;
+    }
 
     html.is-embedded .widget-header h1 { display: none; }
     html.is-embedded .widget-header { padding-top: 1.25rem; }
@@ -163,7 +167,7 @@
     </form>
   </div>
 
-  <div id="app">
+  <div id="app" class="no-naive">
   <section class="section widget-header">
     <div class="container is-max-desktop">
 
@@ -203,6 +207,16 @@
           </select></div>
         </div>
         <div class="field">
+          <label for="downsample">Downsample frames</label>
+          <div class="select is-fullwidth"><select id="downsample" style="width:100%">
+            <option value="fit" selected>Fit 640&times;480</option>
+            <option value="1">1&times; (native)</option>
+            <option value="2">2&times;</option>
+            <option value="4">4&times;</option>
+            <option value="8">8&times;</option>
+          </select></div>
+        </div>
+        <div class="field">
           <label for="interval">Capture every</label>
           <div class="select is-fullwidth"><select id="interval" style="width:100%">
             <option value="500">0.5 s</option>
@@ -219,6 +233,7 @@
         <label class="button file-btn"><span class="icon is-small"><i class="fas fa-file-video"></i></span><span>Play a video file</span>
           <input type="file" id="file-in" accept="video/*"></label>
         <label class="checkbox ml-3"><input type="checkbox" id="speak"> speak feedback</label>
+        <label class="checkbox ml-3"><input type="checkbox" id="naive-on"> also run Naive baseline</label>
       </div>
 
       <div class="columns mt-3" id="widget-root">
@@ -242,20 +257,34 @@
           </div>
         </div>
 
-        <!-- progress -->
+        <!-- replay of the recording -->
         <div class="column is-6">
           <div class="panel-card">
-            <div class="panel-label">Progress &mdash; D&amp;A vs Naive</div>
-            <div class="big-progress"><span id="big-progress">&ndash;</span><small>D&amp;A</small><span id="big-naive" class="naive-num">&ndash;</span><small>Naive</small><small id="big-sub"></small></div>
-            <div class="progress-bar-track"><div class="progress-bar-fill" id="bar"></div></div>
-            <svg class="chart-svg" id="chart" viewBox="0 0 520 240" ></svg>
-            <div class="legend"><span class="key-swatch"></span>D&amp;A<span class="key-swatch naive"></span>Naive (direct from frames)<br>Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
+            <div class="panel-label">Recording replay</div>
+            <div class="video-frame-wrap">
+              <video id="replay" controls playsinline muted></video>
+              <div class="replay-empty" id="replay-empty">Your recording appears here after Stop &amp; score.</div>
+            </div>
+            <div class="status-line">Playing the replay moves the chart marker; clicking the chart seeks the replay.</div>
           </div>
         </div>
       </div>
 
       <div class="columns mt-0" id="widget-root-bottom">
-        <div class="column is-12">
+        <!-- progress -->
+        <div class="column is-6">
+          <div class="panel-card">
+            <div class="panel-label">Progress &mdash; D&amp;A<span class="naive-only"> vs Naive</span></div>
+            <div class="big-progress"><span id="big-progress">&ndash;</span><small>D&amp;A</small><span class="naive-only"><span id="big-naive" class="naive-num">&ndash;</span><small>Naive</small></span><small id="big-sub"></small></div>
+            <div class="compute-time" id="dna-time"></div>
+            <div class="progress-bar-track"><div class="progress-bar-fill" id="bar"></div></div>
+            <svg class="chart-svg" id="chart" viewBox="0 0 520 240" ></svg>
+            <div class="legend"><span class="key-swatch"></span>D&amp;A<span class="naive-only"><span class="key-swatch naive"></span>Naive (direct from frames)</span><br>Click or drag the chart to inspect a past moment. Release to follow the live edge.</div>
+          </div>
+        </div>
+
+        <!-- description + feedback -->
+        <div class="column is-6">
           <div class="panel-card">
             <div class="panel-label">Grounded Description <span id="desc-time"></span></div>
             <div class="desc-wrap">
@@ -265,19 +294,10 @@
             <div class="objects-line" id="objects-line"></div>
 
             <div class="outcome-box">
-              <div class="panel-label" style="margin-bottom:0.7rem;">Failure &amp; Feedback &mdash; D&amp;A vs Naive</div>
-              <div class="compare-grid">
-                <div>
-                  <div class="col-title" style="color:var(--accent)">D&amp;A</div>
-                  <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
-                  <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
-                  <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
-                </div>
-                <div>
-                  <div class="col-title" style="color:#1e88e5">Naive</div>
-                  <div class="outcome-row"><span class="tag is-info is-light">progress</span><span id="naive-progress">&ndash;</span></div>
-                </div>
-              </div>
+              <div class="panel-label" style="margin-bottom:0.7rem;">Failure &amp; Feedback &mdash; D&amp;A</div>
+              <div class="outcome-row"><span class="tag is-danger is-light">failure</span><span id="outcome-failure">&ndash;</span></div>
+              <div class="outcome-row"><span class="tag is-warning is-light">feedback</span><span id="outcome-feedback">&ndash;</span></div>
+              <div class="outcome-row"><span class="tag is-success is-light">success criteria</span><span id="outcome-completion">&ndash;</span></div>
             </div>
 
             <div class="outcome-box">
@@ -296,14 +316,15 @@
   (function () {
     // ---------------------------------------------------------------- config
     const MAX_FRAMES = 300;       // recording auto-stops at this many frames
-    const FRAME_W = 640, FRAME_H = 480;   // frames are downsampled to fit 640x480 before being sent
+    const FRAME_W = 640, FRAME_H = 480;   // bound for the "Fit 640x480" downsampling option
     const CHART_W = 520, CHART_H = 240, PAD_L = 30, PAD_R = 16, PAD_T = 14, PAD_B = 20;
 
     const $ = (id) => document.getElementById(id);
     const el = {
       task: $('task'), model: $('model'),
       interval: $('interval'), thinking: $('thinking'), nframes: $('nframes'), speak: $('speak'),
-      naiveProgress: $('naive-progress'), bigNaive: $('big-naive'),
+      bigNaive: $('big-naive'), dnaTime: $('dna-time'), downsample: $('downsample'), naiveOn: $('naive-on'),
+      replay: $('replay'), replayEmpty: $('replay-empty'),
       video: $('video'), badge: $('step-badge'), dot: $('live-dot'), status: $('status'),
       btnCam: $('btn-cam'), btnScreen: $('btn-screen'), fileIn: $('file-in'),
       btnRecord: $('btn-record'), btnStop: $('btn-stop'), btnReset: $('btn-reset'),
@@ -387,7 +408,8 @@
     function grabFrame() {
       const v = el.video;
       if (!v.videoWidth) return null;
-      const scale = Math.min(1, FRAME_W / v.videoWidth, FRAME_H / v.videoHeight);
+      const ds = el.downsample.value;
+      const scale = ds === 'fit' ? Math.min(1, FRAME_W / v.videoWidth, FRAME_H / v.videoHeight) : 1 / parseInt(ds, 10);
       canvas.width = Math.round(v.videoWidth * scale);
       canvas.height = Math.round(v.videoHeight * scale);
       const ctx = canvas.getContext('2d');
@@ -599,13 +621,14 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       state.analysis = null; state.selected = null;
       el.fbLog.innerHTML = ''; el.objects.textContent = '';
       const N = frames.length, t0 = performance.now();
+      const runNaive = el.naiveOn.checked;
       let ds = 'grounding…', ns = 'scoring…';
-      const upd = () => setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}`);
+      const upd = () => setStatus(`${N} frames · D&A: ${ds}` + (runNaive ? ` · Naive: ${ns}` : ''));
       upd(); render();
 
       // scores are held here and revealed together once both runs have finished
-      let naiveProg = null, dnaResult = null;
-      const naiveRun = (async () => {
+      let naiveProg = null, dnaResult = null, dnaSecs = null;
+      const naiveRun = !runNaive ? Promise.resolve() : (async () => {
         let note = '';
         const prog = await retry(async (last) => {
           const r = await callVLM(promptNaive(task, N), frames);
@@ -646,19 +669,21 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
           return r;
         }, 3);
         dnaResult = a;
-        ds = `done (${((performance.now() - t0) / 1000).toFixed(0)}s${note})`;
+        dnaSecs = (performance.now() - t0) / 1000;
+        ds = `done (${dnaSecs.toFixed(0)}s${note})`;
       })().catch((e) => { console.error('dna', e); ds = 'failed: ' + e.message; }).finally(() => { upd(); render(); });
 
       await Promise.all([naiveRun, dnaRun]);
       if (naiveProg) naiveProg.forEach((p, i) => { state.items[i].naive = p; });
       if (dnaResult) {
         dnaResult.progress.forEach((p, i) => { state.items[i].progress = p; });
+        el.dnaTime.textContent = `D&A computed in ${dnaSecs.toFixed(1)} s`;
         state.analysis = { failure: dnaResult.failure || '', feedback: dnaResult.feedback || '', completion: dnaResult['completion state'] || '' };
         pushFeedback();
       }
       render();
-      const bad = /failed/.test(ds + ns);
-      setStatus(`${N} frames · D&A: ${ds} · Naive: ${ns}` + (bad ? ' — Record again to retry.' : ' — click the chart to inspect any moment.'), bad);
+      const bad = /failed/.test(ds + (runNaive ? ns : ''));
+      setStatus(`${N} frames · D&A: ${ds}` + (runNaive ? ` · Naive: ${ns}` : '') + (bad ? ' — Record again to retry.' : ' — click the chart to inspect any moment.'), bad);
       state.scoring = false;
       el.badge.textContent = 'scored';
       el.btnRecord.disabled = !state.stream && !el.video.src;
@@ -705,7 +730,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
         t.textContent = tv.toFixed(0) + 's'; s.appendChild(t);
       });
       const naivePts = items.filter((it) => it.naive !== null && it.naive !== undefined);
-      if (naivePts.length) {
+      if (naivePts.length && el.naiveOn.checked) {
         s.appendChild(svg('polyline', { points: naivePts.map((it) => `${xFor(it.t)},${yFor(it.naive / 100)}`).join(' '), class: 'dna-line naive' }));
         naivePts.forEach((it) => s.appendChild(svg('circle', { cx: xFor(it.t), cy: yFor(it.naive / 100), r: 4, class: 'naive-dot' })));
       }
@@ -732,7 +757,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       const nLatest = nScored.length ? nScored[nScored.length - 1] : null;
       el.bigNaive.textContent = nLatest ? nLatest.naive + '%' : '–';
       el.bigSub.textContent = live ? (latest || nLatest ? 'final' : '') : `inspecting t = ${it.t.toFixed(0)} s` +
-        (it.progress !== null ? ` · D&A ${it.progress}%` : '') + (it.naive !== null ? ` · Naive ${it.naive}%` : '');
+        (it.progress !== null ? ` · D&A ${it.progress}%` : '') + (it.naive !== null && el.naiveOn.checked ? ` · Naive ${it.naive}%` : '');
       el.bar.style.width = (latest ? latest.progress : 0) + '%';
       el.desc.textContent = it.desc || 'Waiting for description…';
       el.descTime.textContent = `— t = ${it.t.toFixed(1)} s`;
@@ -743,23 +768,73 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
         el.feedback.textContent = done ? '–' : (state.analysis.feedback || '–');
         el.completion.textContent = state.analysis.completion || '–';
       }
-      el.naiveProgress.textContent = nLatest ? nLatest.naive + '%' : '–';
     }
 
     function idxFromClientX(x) {
       const r = el.chart.getBoundingClientRect();
       const relX = ((x - r.left) / r.width) * CHART_W;
       const t = domain[0] + ((relX - PAD_L) / (CHART_W - PAD_L - PAD_R)) * (domain[1] - domain[0]);
-      let best = 0;
-      state.items.forEach((it, i) => { if (Math.abs(it.t - t) < Math.abs(state.items[best].t - t)) best = i; });
-      return best;
+      return nearestIdx(t);
+    }
+    function seekReplay() {
+      if (el.replay.src && state.selected !== null && isFinite(el.replay.duration)) el.replay.currentTime = state.items[state.selected].t;
     }
     let dragging = false;
-    el.chart.addEventListener('pointerdown', (e) => { if (!state.items.length) return; dragging = true; el.chart.setPointerCapture(e.pointerId); state.selected = idxFromClientX(e.clientX); render(); });
-    el.chart.addEventListener('pointermove', (e) => { if (dragging) { state.selected = idxFromClientX(e.clientX); render(); } });
+    el.chart.addEventListener('pointerdown', (e) => { if (!state.items.length) return; dragging = true; el.chart.setPointerCapture(e.pointerId); state.selected = idxFromClientX(e.clientX); seekReplay(); render(); });
+    el.chart.addEventListener('pointermove', (e) => { if (dragging) { state.selected = idxFromClientX(e.clientX); seekReplay(); render(); } });
     const release = () => { if (dragging) { dragging = false; state.selected = null; render(); } };
     el.chart.addEventListener('pointerup', release);
     el.chart.addEventListener('pointercancel', release);
+
+    // ---------------------------------------------------------------- replay
+    // the stream is recorded alongside frame capture, so replay time lines up with frame t
+    let recorder = null;
+    function startReplayRecording() {
+      clearReplay();
+      const v = el.video;
+      const src = state.stream || (v.captureStream ? v.captureStream() : v.mozCaptureStream ? v.mozCaptureStream() : null);
+      if (!src || !window.MediaRecorder) { el.replayEmpty.textContent = 'Replay is not supported in this browser.'; return; }
+      try {
+        const rec = new MediaRecorder(new MediaStream(src.getVideoTracks()));
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = () => {
+          if (recorder !== rec || !chunks.length) return;   // superseded by a newer recording or a reset
+          el.replay.src = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'video/webm' }));
+          el.replayEmpty.style.display = 'none';
+        };
+        rec.start(1000);
+        recorder = rec;
+      } catch (e) { console.error('recorder', e); el.replayEmpty.textContent = 'Could not record replay: ' + e.message; }
+    }
+    function stopReplayRecording() {
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+    }
+    function clearReplay() {
+      recorder = null;
+      if (el.replay.src) URL.revokeObjectURL(el.replay.src);
+      el.replay.removeAttribute('src'); el.replay.load();
+      el.replayEmpty.style.display = ''; el.replayEmpty.textContent = 'Your recording appears here after Stop & score.';
+    }
+    // MediaRecorder webm files have no duration until scanned to the end, which breaks seeking
+    el.replay.addEventListener('loadedmetadata', () => {
+      if (el.replay.duration !== Infinity) return;
+      el.replay.currentTime = 1e101;
+      el.replay.addEventListener('timeupdate', function fix() {
+        el.replay.removeEventListener('timeupdate', fix);
+        el.replay.currentTime = 0;
+      });
+    });
+    const nearestIdx = (t) => {
+      let best = 0;
+      state.items.forEach((it, i) => { if (Math.abs(it.t - t) < Math.abs(state.items[best].t - t)) best = i; });
+      return best;
+    };
+    el.replay.addEventListener('timeupdate', () => {
+      if (dragging || el.replay.paused || !state.items.length) return;
+      state.selected = nearestIdx(el.replay.currentTime); render();
+    });
+    el.replay.addEventListener('ended', () => { state.selected = null; render(); });
 
     // --------------------------------------------------------------- controls
     function record() {
@@ -768,6 +843,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       el.btnReset.click();
       state.t0 = performance.now();
       state.recording = true;
+      startReplayRecording();
       el.dot.classList.add('is-live');
       el.btnRecord.disabled = true; el.btnStop.disabled = false;
       clearInterval(state.captureTimer);
@@ -779,6 +855,7 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       if (!state.recording) return;
       state.recording = false;
       clearInterval(state.captureTimer);
+      stopReplayRecording();
       el.dot.classList.remove('is-live');
       if (!state.frames.length) { el.btnRecord.disabled = false; el.btnStop.disabled = true; setStatus('No frames were captured.', true); return; }
       scoreAll();
@@ -795,11 +872,14 @@ Respond with a list of ${n} progress values (ordered by frame) in the following 
       el.fbLog.innerHTML = ''; el.objects.textContent = ''; el.desc.textContent = 'Waiting for frames…';
       el.thumb.style.display = 'none'; el.big.textContent = '–'; el.bigSub.textContent = ''; el.bar.style.width = '0';
       el.failure.textContent = el.feedback.textContent = el.completion.textContent = '–';
-      el.naiveProgress.textContent = el.bigNaive.textContent = '–';
+      el.bigNaive.textContent = '–';
+      clearReplay();
+      el.dnaTime.textContent = '';
       drawChart();
       setStatus('History cleared.');
     });
     el.task.addEventListener('change', () => { state.needGround = true; });
+    el.naiveOn.addEventListener('change', () => { $('app').classList.toggle('no-naive', !el.naiveOn.checked); drawChart(); });
 
     drawChart();
   })();
